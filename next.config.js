@@ -8,7 +8,7 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  // 2. The Whop Iframe Security Settings (Crucial)
+  // 2. The Whop Iframe Security Settings (Very Crucial)
   headers: async () => [
     {
       source: '/(.*)',
