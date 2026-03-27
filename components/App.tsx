@@ -10,13 +10,15 @@ import {
 } from 'lucide-react';
 
 // --- CONFIGURATION ---
+// These pull from your Vercel Environment Variables
 const firebaseConfig = JSON.parse(window.__firebase_config || '{}');
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-// This tells the app: "Check Vercel for the App ID first; if it's missing, use this default."
+
+// UPDATED: Using the Next.js Public Environment Variables
 const appId = process.env.NEXT_PUBLIC_WHOP_APP_ID || 'whop-pro-companion';
-const geminiKey = ""; 
+const geminiKey = process.env.GEMINI_API_KEY || ""; 
 
 const glassStyle = "bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl transition-all duration-500";
 
@@ -39,61 +41,79 @@ export default function App({ initialAuthToken }) {
 
   const scrollRef = useRef(null);
 
-  // 1. Auth & Claims
+  // 1. Auth & Claims Handling
   useEffect(() => {
     const initAuth = async () => {
       try {
         const token = initialAuthToken || (typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null);
-        token ? await signInWithCustomToken(auth, token) : await signInAnonymously(auth);
-      } catch (e) { setAuthStatus('error'); }
+        if (token) {
+          await signInWithCustomToken(auth, token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (e) { 
+        console.error("Auth Error:", e);
+        setAuthStatus('error'); 
+      }
     };
     initAuth();
+
     return onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (u) {
          setAuthStatus(u.isAnonymous ? 'anonymous' : 'whop');
-         const claims = (await u.getIdTokenResult()).claims;
-         setIsAdmin(claims.whopRole === 'admin' || u.isAnonymous);
+         // Check custom claims for admin status
+         const idTokenResult = await u.getIdTokenResult();
+         setIsAdmin(idTokenResult.claims.whopRole === 'admin');
       }
     });
   }, [initialAuthToken]);
 
-  // 2. Real-time Multi-User Sync
+  // 2. Real-time Firestore Sync (Multiplayer & Course Updates)
   useEffect(() => {
     if (!user) return;
 
-    // A. Course Content (Syncs via Webhook in background)
-    const unsubCourse = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'course_config'), (s) => {
-      if (s.exists()) setCourseData(s.data());
-    });
+    // A. Course Content (Syncs automatically via Webhook)
+    const unsubCourse = onSnapshot(
+      doc(db, 'artifacts', appId, 'public', 'data', 'course_config'), 
+      (s) => s.exists() && setCourseData(s.data()),
+      (err) => console.error("Firestore Error (Course):", err)
+    );
 
-    // B. User Private Progress
-    const unsubStats = onSnapshot(doc(db, 'artifacts', appId, 'users', user.uid, 'progress', 'stats'), (s) => {
-      if (s.exists()) setUserStats(s.data());
-    });
+    // B. User Stats (Private Progress)
+    const unsubStats = onSnapshot(
+      doc(db, 'artifacts', appId, 'users', user.uid, 'progress', 'stats'), 
+      (s) => s.exists() && setUserStats(s.data()),
+      (err) => console.error("Firestore Error (Stats):", err)
+    );
 
-    // C. Multiplayer Leaderboard
-    const unsubBoard = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard'), (s) => {
-      const board = s.docs.map(d => ({ id: d.id, ...d.data() }))
-                     .sort((a, b) => b.score - a.score)
-                     .slice(0, 5); // Simple sort in JS per Rule 2
-      setLeaderboard(board);
-    });
+    // C. Global Leaderboard (Public Data)
+    const unsubBoard = onSnapshot(
+      collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard'), 
+      (s) => {
+        const board = s.docs.map(d => ({ id: d.id, ...d.data() }))
+                       .sort((a, b) => b.score - a.score)
+                       .slice(0, 5); 
+        setLeaderboard(board);
+      },
+      (err) => console.error("Firestore Error (Board):", err)
+    );
 
     return () => { unsubCourse(); unsubStats(); unsubBoard(); };
   }, [user]);
 
-  // 3. Logic: Submit Score to Leaderboard
+  // 3. Score Logic
   const recordScore = async (score) => {
     if (!user) return;
-    // 1. Update Personal High Score
     const newStats = {
       totalQuizzes: (userStats.totalQuizzes || 0) + 1,
       highScore: Math.max(userStats.highScore || 0, score)
     };
+    
+    // Save personal stats
     await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'progress', 'stats'), newStats, { merge: true });
 
-    // 2. Update Global Leaderboard
+    // Update global leaderboard entry
     await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leaderboard', user.uid), {
       username: user.isAnonymous ? "Guest Learner" : `User ${user.uid.slice(-4)}`,
       score: newStats.highScore,
@@ -101,23 +121,32 @@ export default function App({ initialAuthToken }) {
     });
   };
 
+  // 4. AI Chat Logic
   const handleSendMessage = async () => {
     if (!input.trim() || loading) return;
-    const txt = input; setMessages(p => [...p, { role: 'user', text: txt }]); setInput(''); setLoading(true);
+    const userText = input;
+    setMessages(p => [...p, { role: 'user', text: userText }]);
+    setInput('');
+    setLoading(true);
     
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${geminiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          contents: [{ parts: [{ text: txt }] }], 
-          systemInstruction: { parts: [{ text: `Course context: ${courseData.content}. Act as a tutor.` }] } 
+          contents: [{ parts: [{ text: userText }] }], 
+          systemInstruction: { parts: [{ text: `Course context: ${courseData.content}. You are an elite tutor for this course.` }] } 
         })
       });
-      const d = await res.json();
-      setMessages(p => [...p, { role: 'assistant', text: d.candidates[0].content.parts[0].text }]);
-    } catch { setMessages(p => [...p, { role: 'assistant', text: "Offline." }]); }
-    finally { setLoading(false); if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }
+      const data = await res.json();
+      const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "I'm having trouble connecting right now.";
+      setMessages(p => [...p, { role: 'assistant', text: aiResponse }]);
+    } catch (error) {
+      setMessages(p => [...p, { role: 'assistant', text: "Error connecting to AI brain." }]);
+    } finally {
+      setLoading(false);
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+    }
   };
 
   if (!user) return <div className="h-screen bg-slate-950 flex items-center justify-center text-indigo-500 animate-pulse font-bold">WHOP AUTH...</div>;
@@ -126,7 +155,7 @@ export default function App({ initialAuthToken }) {
     <div className="min-h-screen bg-[#020617] text-slate-200 p-4 md:p-8 selection:bg-indigo-500/40">
       <div className="max-w-7xl mx-auto space-y-6">
         
-        {/* Navigation / Header */}
+        {/* Header Section */}
         <nav className="flex flex-col md:flex-row items-center justify-between gap-6 p-4 rounded-3xl bg-slate-900/40 border border-white/5">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-gradient-to-tr from-indigo-600 to-purple-600 rounded-2xl flex items-center justify-center shadow-xl shadow-indigo-500/20">
@@ -137,7 +166,7 @@ export default function App({ initialAuthToken }) {
               <div className="flex items-center gap-2">
                 <div className={`w-2 h-2 rounded-full animate-pulse ${courseData.content ? 'bg-emerald-500' : 'bg-amber-500'}`} />
                 <span className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">
-                  {courseData.lastUpdated ? `Sync: ${new Date(courseData.lastUpdated).toLocaleTimeString()}` : 'Waiting for Data'}
+                  {courseData.lastUpdated ? `Sync: ${new Date(courseData.lastUpdated).toLocaleTimeString()}` : 'No Course Data Found'}
                 </span>
               </div>
             </div>
@@ -146,17 +175,24 @@ export default function App({ initialAuthToken }) {
           <div className="flex items-center gap-1.5 p-1 bg-black/40 rounded-2xl border border-white/5">
             <NavBtn active={view==='chat'} onClick={()=>setView('chat')} icon={<MessageSquare size={16}/>} label="Tutor" />
             <NavBtn active={view==='quiz'} onClick={()=>setView('quiz')} icon={<Trophy size={16}/>} label="Arena" />
-            {isAdmin && <NavBtn active={view==='admin'} onClick={()=>setView('admin')} icon={<RefreshCw size={16}/>} label="Sync" />}
+            {isAdmin && <NavBtn active={view==='admin'} onClick={()=>setView('admin')} icon={<RefreshCw size={16}/>} label="Admin" />}
           </div>
         </nav>
 
         <main className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Main Content (8 cols) */}
           <div className="lg:col-span-8 space-y-6">
             {view === 'chat' && (
               <div className={`${glassStyle} h-[650px] flex flex-col relative`}>
-                <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6">
-                  {messages.length === 0 && <WelcomeUI />}
+                <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin">
+                  {messages.length === 0 && (
+                    <div className="h-full flex flex-col items-center justify-center text-center space-y-4">
+                      <div className="w-20 h-20 bg-indigo-500/10 rounded-full flex items-center justify-center text-indigo-400">
+                        <Sparkles size={32} className="animate-pulse" />
+                      </div>
+                      <h2 className="text-2xl font-black">AI Tutor Engaged</h2>
+                      <p className="text-slate-500 text-sm max-w-xs mx-auto">I'm synced with your course content. How can I help you today?</p>
+                    </div>
+                  )}
                   {messages.map((m, i) => (
                     <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <div className={`max-w-[80%] p-4 rounded-3xl text-sm leading-relaxed shadow-lg ${m.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-slate-800/80 border border-white/5 rounded-tl-sm'}`}>
@@ -170,10 +206,10 @@ export default function App({ initialAuthToken }) {
                     <input 
                       type="text" value={input} onChange={(e)=>setInput(e.target.value)}
                       onKeyPress={(e)=>e.key==='Enter' && handleSendMessage()}
-                      placeholder="Ask your tutor anything..."
+                      placeholder="Ask a question about the course..."
                       className="w-full bg-slate-950 border border-slate-800 rounded-2xl py-4 pl-5 pr-14 focus:border-indigo-500 transition-all outline-none shadow-inner"
                     />
-                    <button onClick={handleSendMessage} className="absolute right-2 top-2 bottom-2 px-5 bg-indigo-600 rounded-xl hover:bg-indigo-500 transition-colors">
+                    <button onClick={handleSendMessage} disabled={loading} className="absolute right-2 top-2 bottom-2 px-5 bg-indigo-600 rounded-xl hover:bg-indigo-500 transition-colors disabled:opacity-50">
                       <Send size={18} />
                     </button>
                   </div>
@@ -189,17 +225,21 @@ export default function App({ initialAuthToken }) {
                       <Trophy size={48} className="animate-bounce" />
                     </div>
                     <h2 className="text-3xl font-black">Knowledge Arena</h2>
-                    <p className="text-slate-500 text-sm">Challenge yourself with an AI-generated quiz based on the latest course updates.</p>
+                    <p className="text-slate-500 text-sm">Test your knowledge and climb the leaderboard.</p>
                     <button onClick={async () => {
                         setLoading(true);
-                        const prompt = `3 question MCQ. Context: ${courseData.content}. JSON: {questions:[{q, options, correct}]}`;
-                        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${geminiKey}`, {
-                          method: 'POST', headers: {'Content-Type': 'application/json'},
-                          body: JSON.stringify({ contents: [{parts:[{text: prompt}]}], generationConfig:{responseMimeType:"application/json"}})
-                        });
-                        const d = await res.json(); setQuiz(JSON.parse(d.candidates[0].content.parts[0].text).questions); setLoading(false);
+                        try {
+                          const prompt = `Generate a 3 question MCQ quiz. Context: ${courseData.content}. Return JSON: {questions:[{q, options, correct}]}`;
+                          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${geminiKey}`, {
+                            method: 'POST', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ contents: [{parts:[{text: prompt}]}], generationConfig:{responseMimeType:"application/json"}})
+                          });
+                          const d = await res.json(); 
+                          setQuiz(JSON.parse(d.candidates[0].content.parts[0].text).questions);
+                        } catch (e) { console.error(e); }
+                        setLoading(false);
                     }} className="w-full py-4 bg-indigo-600 rounded-2xl font-black text-lg hover:scale-[1.02] transition-transform">
-                      {loading ? "Preparing Arena..." : "Start Challenge"}
+                      {loading ? "Generating Challenge..." : "Enter Arena"}
                     </button>
                   </div>
                 ) : (
@@ -220,11 +260,12 @@ export default function App({ initialAuthToken }) {
                        <button onClick={() => {
                          let s = 0; quiz.forEach((q, i) => { if(quizAnswers[i] === q.correct) s++ });
                          setQuizResult(s); recordScore(s);
-                       }} className="w-full py-5 bg-emerald-600 rounded-2xl font-black text-xl">Submit to Leaderboard</button>
+                       }} className="w-full py-5 bg-emerald-600 rounded-2xl font-black text-xl">Finish Quiz</button>
                      ) : (
                        <div className="p-8 bg-indigo-600/20 rounded-3xl border border-indigo-500/30 text-center">
                          <p className="text-5xl font-black mb-2">{quizResult} / {quiz.length}</p>
-                         <button onClick={() => {setQuiz(null); setQuizResult(null); setQuizAnswers({});}} className="text-indigo-400 font-bold hover:underline">New Challenge</button>
+                         <p className="text-indigo-400 font-bold mb-4">Score Recorded!</p>
+                         <button onClick={() => {setQuiz(null); setQuizResult(null); setQuizAnswers({});}} className="text-white bg-indigo-600 px-6 py-2 rounded-xl hover:bg-indigo-500">Play Again</button>
                        </div>
                      )}
                   </div>
@@ -236,20 +277,20 @@ export default function App({ initialAuthToken }) {
               <div className={`${glassStyle} p-8 space-y-6`}>
                 <div className="flex items-center gap-3">
                    <div className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400"><RefreshCw /></div>
-                   <h2 className="text-2xl font-black">Admin Sync Engine</h2>
+                   <h2 className="text-2xl font-black">Sync Dashboard</h2>
                 </div>
-                <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-amber-200 text-xs">
-                  Pro-Tip: Use the Whop Webhook URL `https://your-domain.com/api/webhook/whop` in your Whop Dev Portal to automate this.
+                <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-2xl text-blue-200 text-xs">
+                  Whop Webhook: <span className="font-mono text-white underline select-all">https://your-domain.com/api/webhook/whop</span>
                 </div>
                 <textarea 
                   className="w-full h-80 bg-slate-950/80 border border-slate-800 rounded-2xl p-6 text-sm outline-none focus:border-indigo-500 font-mono"
-                  placeholder="Manual Override: Paste course content here..."
+                  placeholder="Paste lesson text here for manual override..."
                   defaultValue={courseData.content}
                   onBlur={async (e) => {
                     await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'course_config'), { 
                       content: e.target.value,
                       lastUpdated: new Date().toISOString(),
-                      source: 'Manual Sync'
+                      source: 'Admin Manual Sync'
                     });
                   }}
                 />
@@ -257,14 +298,11 @@ export default function App({ initialAuthToken }) {
             )}
           </div>
 
-          {/* Sidebar (4 cols) */}
-          <div className="lg:col-span-4 space-y-6">
-            
-            {/* Global Leaderboard */}
+          <aside className="lg:col-span-4 space-y-6">
             <div className={`${glassStyle} p-6 space-y-6 border-indigo-500/20`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-indigo-400 font-black text-sm uppercase tracking-tighter">
-                  <Globe size={16} /> Global Arena
+                  <Globe size={16} /> Leaderboard
                 </div>
                 <span className="text-[10px] bg-indigo-500/10 text-indigo-400 px-2 py-1 rounded-full font-bold">LIVE</span>
               </div>
@@ -281,29 +319,26 @@ export default function App({ initialAuthToken }) {
                     </div>
                   </div>
                 ))}
-                {leaderboard.length === 0 && <div className="text-center py-4 text-xs text-slate-600 italic">No scores yet. Be the first!</div>}
+                {leaderboard.length === 0 && <div className="text-center py-4 text-xs text-slate-600 italic">No rankings yet.</div>}
               </div>
             </div>
 
-            {/* Personal Performance */}
             <div className={`${glassStyle} p-6 space-y-4`}>
               <div className="flex items-center gap-2 text-slate-400 font-black text-sm uppercase tracking-tighter">
-                <Users size={16} /> Your Stats
+                <Users size={16} /> Personal Stats
               </div>
-              <div className="flex flex-col gap-2">
-                <div className="flex justify-between items-end p-4 rounded-2xl bg-slate-950/80 border border-slate-800">
-                  <div>
-                    <p className="text-[10px] text-slate-500 font-bold uppercase">Personal Best</p>
-                    <p className="text-2xl font-black text-white">{userStats.highScore || 0}</p>
-                  </div>
-                  <div className="text-emerald-500 text-xs font-bold flex items-center gap-1">
-                    <Zap size={12} fill="currentColor"/> +{(userStats.highScore || 0) * 10} XP
-                  </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800">
+                  <p className="text-[10px] text-slate-500 font-bold uppercase">Best</p>
+                  <p className="text-xl font-black text-white">{userStats.highScore || 0}</p>
+                </div>
+                <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800">
+                  <p className="text-[10px] text-slate-500 font-bold uppercase">Quizzes</p>
+                  <p className="text-xl font-black text-white">{userStats.totalQuizzes || 0}</p>
                 </div>
               </div>
             </div>
-
-          </div>
+          </aside>
         </main>
       </div>
     </div>
@@ -316,16 +351,4 @@ function NavBtn({ active, onClick, icon, label }) {
       {icon} <span>{label}</span>
     </button>
   );
-}
-
-function WelcomeUI() {
-  return (
-    <div className="h-full flex flex-col items-center justify-center text-center space-y-4 animate-in zoom-in duration-700">
-      <div className="w-20 h-20 bg-indigo-500/10 rounded-full flex items-center justify-center text-indigo-400 shadow-inner">
-        <Sparkles size={32} className="animate-pulse" />
-      </div>
-      <h2 className="text-2xl font-black">AI Tutor Engaged</h2>
-      <p className="text-slate-500 text-sm max-w-xs mx-auto">I've indexed the course modules. Ask me anything to clarify concepts or prepare for the next arena challenge.</p>
-    </div>
-  );
-                                             }
+          }
