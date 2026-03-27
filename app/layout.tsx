@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import '@/app/globals.css'; // Ensure you have a tailwind-enabled globals.css
+import "./globals.css"; // Ensure you have a tailwind-enabled globals.css
 
 export const metadata: Metadata = {
   title: "Whop AI Companion",
