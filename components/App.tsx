@@ -14,7 +14,8 @@ const firebaseConfig = JSON.parse(window.__firebase_config || '{}');
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'whop-pro-companion';
+// This tells the app: "Check Vercel for the App ID first; if it's missing, use this default."
+const appId = process.env.NEXT_PUBLIC_WHOP_APP_ID || 'whop-pro-companion';
 const geminiKey = ""; 
 
 const glassStyle = "bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl transition-all duration-500";
