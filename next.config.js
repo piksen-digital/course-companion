@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // 1. Tell Vercel to push through even if it sees a warning or a type mismatch
+  // 1. Tell Vercel to push through even if it happens to see a warning or a type mismatch
   typescript: {
     ignoreBuildErrors: true,
   },
