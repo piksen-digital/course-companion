@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { WhopAPI } from '@whop-apps/sdk';
 import { adminAuth } from '@/lib/firebase-admin';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: Request) {
   try {
     const headers = new Headers(request.headers);
