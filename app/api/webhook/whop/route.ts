@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
 
+// Webhooks must always be dynamic because they process incoming 
+// live data from Whop servers.
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: Request) {
   const body = await req.json();
   const appId = process.env.NEXT_PUBLIC_WHOP_APP_ID;
