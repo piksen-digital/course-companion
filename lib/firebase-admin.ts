@@ -1,46 +1,47 @@
 import * as admin from 'firebase-admin';
 
 /**
- * DEFENSIVE INITIALIZATION
- * This prevents the "Application Error" crash by catching 
- * Firebase errors and logging them to Vercel instead of the browser.
+ * FULL JSON INITIALIZATION
+ * This approach takes the entire Service Account JSON from Firebase 
+ * and parses it in one go, avoiding common multi-variable mapping errors.
  */
 
 const initAdmin = () => {
   if (admin.apps.length > 0) return;
 
   try {
-    const rawKey = process.env.FIREBASE_PRIVATE_KEY;
-    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-    const projectId = process.env.FIREBASE_PROJECT_ID;
+    const rawJson = process.env.FIREBASE_SERVICE_ACCOUNT;
 
-    if (!rawKey || !clientEmail || !projectId) {
-      console.warn("⚠️ Firebase Admin Environment Variables are incomplete.");
+    if (!rawJson) {
+      console.warn("⚠️ Missing FIREBASE_SERVICE_ACCOUNT in Vercel.");
       return;
     }
 
-    // Replace literal "\n" strings with real newline characters
-    // and trim any accidental surrounding quotes.
-    const cleanKey = rawKey.replace(/\\n/g, '\n').replace(/^"|"$/g, '');
+    // Parse the full JSON string
+    const serviceAccount = JSON.parse(rawJson);
+
+    // Fix the private key formatting within the object
+    if (serviceAccount.private_key) {
+      serviceAccount.private_key = serviceAccount.private_key
+        .replace(/\\n/g, '\n')
+        .replace(/^"|"$/g, '');
+    }
 
     admin.initializeApp({
-      credential: admin.credential.cert({
-        projectId,
-        clientEmail,
-        privateKey: cleanKey,
-      }),
+      credential: admin.credential.cert(serviceAccount),
     });
-    
-    console.log("✅ Firebase Admin successfully initialized.");
+
+    console.log("✅ Firebase Admin successfully initialized using Full JSON.");
   } catch (error: any) {
-    // This CATCH prevents the server-side crash (Application Error)
+    // This CATCH prevents the "Application Error" crash on your live site.
     console.error("❌ Firebase Admin Initialization Failed:", error.message);
   }
 };
 
 initAdmin();
 
-export const adminDb = admin.firestore();
-export const adminAuth = admin.auth();
+// Export with fallback to prevent crashes if init failed
+export const adminDb = admin.apps.length ? admin.firestore() : (null as any);
+export const adminAuth = admin.apps.length ? admin.auth() : (null as any);
 
 export default admin;
