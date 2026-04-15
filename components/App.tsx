@@ -49,11 +49,16 @@ export default function App({ initialAuthToken }) {
         if (token) {
           await signInWithCustomToken(auth, token);
         } else {
+          // If network-request-failed happens here, it's usually the API/Domain issue
           await signInAnonymously(auth);
         }
-      } catch (e) { 
-        console.error("Auth Error:", e);
-        setAuthStatus('error'); 
+      } catch (e: any) { 
+        console.error("Auth Error:", e.code || e.message);
+        // If we hit a network error, we try one more time after 2 seconds
+        if (e.code === 'auth/network-request-failed') {
+           setTimeout(initAuth, 2000);
+        } else {
+           setAuthStatus('error');  
       }
     };
     initAuth();
