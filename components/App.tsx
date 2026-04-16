@@ -20,12 +20,29 @@ import {
   AlertCircle, WifiOff
 } from 'lucide-react';
 
-// Configuration
-const firebaseConfig = JSON.parse(process.env.NEXT_PUBLIC_FIREBASE_CONFIG || '{}');
+/**
+ * HELPER: Decode Firebase Config
+ * Handles both raw JSON and Base64 encoded strings from environment variables.
+ */
+const getFirebaseConfig = () => {
+  const rawConfig = process.env.NEXT_PUBLIC_FIREBASE_CONFIG || '{}';
+  try {
+    // If it looks like Base64 (starts with e... for { or has no braces)
+    if (rawConfig.startsWith('ewog') || !rawConfig.trim().startsWith('{')) {
+      return JSON.parse(atob(rawConfig));
+    }
+    return JSON.parse(rawConfig);
+  } catch (e) {
+    console.error("Firebase Config Parsing Error:", e);
+    return {};
+  }
+};
+
+const firebaseConfig = getFirebaseConfig();
 const appId = process.env.NEXT_PUBLIC_WHOP_APP_ID || 'whop-pro-companion';
 const geminiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || ""; 
 
-// Initialize Firebase locally to avoid resolution errors
+// Initialize Firebase locally
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -47,8 +64,8 @@ export default function App({ initialAuthToken }) {
 
   const scrollRef = useRef(null);
 
-  // 1. Auth & Connection Logic with Timeout
   useEffect(() => {
+    // 15-second safety timer
     const connectionTimeout = setTimeout(() => {
       if (!auth.currentUser) {
         setAuthError("CONNECTION_TIMEOUT");
@@ -64,12 +81,8 @@ export default function App({ initialAuthToken }) {
           await signInAnonymously(auth);
         }
       } catch (e: any) { 
-        console.error("Auth Error Code:", e.code);
-        if (e.code === 'auth/network-request-failed') {
-          setAuthError("NETWORK_ERROR");
-        } else {
-          setAuthError("AUTH_FAILED");
-        }
+        console.error("Auth Error:", e.code);
+        setAuthError(e.code === 'auth/network-request-failed' ? "NETWORK_ERROR" : "AUTH_FAILED");
       }
     };
 
@@ -90,11 +103,10 @@ export default function App({ initialAuthToken }) {
     };
   }, [initialAuthToken]);
 
-  // 2. Real-time Firestore Sync (FIXED PATHS)
   useEffect(() => {
     if (!user) return;
 
-    // PATH FIX: Added 'main' to make segments EVEN (6 segments)
+    // PATH FIX: artifacts/{id}/public/data/course_config/main (6 segments)
     const unsubCourse = onSnapshot(
       doc(db, 'artifacts', appId, 'public', 'data', 'course_config', 'main'), 
       (s) => s.exists() && setCourseData(s.data() as any),
@@ -129,9 +141,9 @@ export default function App({ initialAuthToken }) {
         </div>
         <h2 className="text-2xl font-black text-white mb-2 tracking-tight uppercase">Neural Link Failure</h2>
         <p className="text-slate-400 mb-8 max-w-sm leading-relaxed">
-          {authError === 'NETWORK_ERROR' 
-            ? "Your connection to the Firebase core was interrupted. Please ensure your Vercel domain is authorized in Firebase."
-            : "The authentication sequence timed out. Check your network or refresh the session."}
+          {authError === 'CONNECTION_TIMEOUT' 
+            ? "Initialization timed out. This is often caused by invalid credentials or a blocked connection."
+            : "A network error occurred while establishing the link."}
         </p>
         <button onClick={() => window.location.reload()} className="px-10 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black shadow-xl shadow-indigo-600/20 active:scale-95 transition-all">
           RETRY INITIALIZATION
@@ -140,7 +152,7 @@ export default function App({ initialAuthToken }) {
     );
   }
 
-  const activeContent = courseData.content || "Welcome to your Course Companion. Once the creator syncs their lesson data, I can assist you with summaries and quizzes.";
+  const activeContent = courseData.content || "Welcome. I am standing by for course data synchronization.";
 
   if (!user) {
     return (
@@ -151,7 +163,7 @@ export default function App({ initialAuthToken }) {
         </div>
         <div className="mt-8 text-indigo-400 font-black tracking-[0.3em] uppercase text-sm animate-pulse text-center">
           Initializing Neural Link<span className="animate-bounce">...</span>
-          <p className="text-[10px] text-slate-600 mt-2 tracking-normal font-medium">Attempting Secure Auth Handshake</p>
+          <p className="text-[10px] text-slate-600 mt-2 tracking-normal font-medium">Decoding Credentials & Connecting</p>
         </div>
       </div>
     );
@@ -194,7 +206,7 @@ export default function App({ initialAuthToken }) {
                       </div>
                       <h2 className="text-2xl font-black uppercase tracking-tighter">AI Tutor Engaged</h2>
                       <p className="text-slate-500 text-sm max-w-xs mx-auto font-medium leading-relaxed">
-                        {courseData.content ? "I've analyzed the material. How can I help you learn today?" : "Ready for instructions. Sync your course content to begin training."}
+                        {courseData.content ? "How can I help you master the course material today?" : "I am connected and ready. Sync lesson content to begin training."}
                       </p>
                     </div>
                   )}
@@ -223,7 +235,7 @@ export default function App({ initialAuthToken }) {
             ) : (
                <div className={`${glassStyle} p-12 text-center`}>
                   <h2 className="text-2xl font-black text-white uppercase tracking-widest">{view} Mode Locked</h2>
-                  <p className="text-slate-500 mt-2">Finish initializing the tutor first to unlock further training modules.</p>
+                  <p className="text-slate-500 mt-2">Initialize tutor sync to unlock module training.</p>
                </div>
             )}
           </div>
@@ -268,10 +280,10 @@ export default function App({ initialAuthToken }) {
         })
       });
       const data = await res.json();
-      const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "The neural link is fuzzy. Could you repeat that?";
+      const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "Response logic failure.";
       setMessages(p => [...p, { role: 'assistant', text: aiResponse }]);
     } catch (error) {
-      setMessages(p => [...p, { role: 'assistant', text: "Signal lost. Check your API key or network status." }]);
+      setMessages(p => [...p, { role: 'assistant', text: "Signal lost." }]);
     } finally {
       setLoading(false);
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -281,8 +293,8 @@ export default function App({ initialAuthToken }) {
 
 function NavBtn({ active, onClick, icon, label }) {
   return (
-    <button onClick={onClick} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all font-bold text-xs uppercase tracking-tight ${active ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20 scale-105' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>
+    <button onClick={onClick} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all font-bold text-xs uppercase tracking-tight ${active ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>
       {icon} <span>{label}</span>
     </button>
   );
-}
+          }
