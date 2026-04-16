@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
+  getAuth,
   signInAnonymously, 
   signInWithCustomToken, 
   onAuthStateChanged,
   getIdTokenResult 
 } from 'firebase/auth';
 import { 
+  getFirestore,
   doc, 
   setDoc, 
   collection, 
@@ -17,11 +20,15 @@ import {
   AlertCircle, WifiOff
 } from 'lucide-react';
 
-// Import the centralized Firebase instances
-import { auth, db } from '../lib/firebase';
-
+// Configuration
+const firebaseConfig = JSON.parse(process.env.NEXT_PUBLIC_FIREBASE_CONFIG || '{}');
 const appId = process.env.NEXT_PUBLIC_WHOP_APP_ID || 'whop-pro-companion';
 const geminiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || ""; 
+
+// Initialize Firebase locally to avoid resolution errors
+const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
 
 const glassStyle = "bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl transition-all duration-500";
 
@@ -42,7 +49,6 @@ export default function App({ initialAuthToken }) {
 
   // 1. Auth & Connection Logic with Timeout
   useEffect(() => {
-    // Set a 15-second safety timer to stop the infinite loop
     const connectionTimeout = setTimeout(() => {
       if (!auth.currentUser) {
         setAuthError("CONNECTION_TIMEOUT");
@@ -71,7 +77,7 @@ export default function App({ initialAuthToken }) {
 
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       if (u) {
-        clearTimeout(connectionTimeout); // Success! Stop the timeout timer.
+        clearTimeout(connectionTimeout);
         setUser(u);
         const tokenResult = await getIdTokenResult(u);
         setIsAdmin(tokenResult.claims.whopRole === 'admin');
@@ -84,12 +90,13 @@ export default function App({ initialAuthToken }) {
     };
   }, [initialAuthToken]);
 
-  // 2. Real-time Firestore Sync
+  // 2. Real-time Firestore Sync (FIXED PATHS)
   useEffect(() => {
     if (!user) return;
 
+    // PATH FIX: Added 'main' to make segments EVEN (6 segments)
     const unsubCourse = onSnapshot(
-      doc(db, 'artifacts', appId, 'public', 'data', 'course_config'), 
+      doc(db, 'artifacts', appId, 'public', 'data', 'course_config', 'main'), 
       (s) => s.exists() && setCourseData(s.data() as any),
       (err) => console.error("Firestore Error (Course):", err)
     );
@@ -114,7 +121,6 @@ export default function App({ initialAuthToken }) {
     return () => { unsubCourse(); unsubStats(); unsubBoard(); };
   }, [user]);
 
-  // Handle errors visually instead of looping forever
   if (authError) {
     return (
       <div className="h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
@@ -124,21 +130,17 @@ export default function App({ initialAuthToken }) {
         <h2 className="text-2xl font-black text-white mb-2 tracking-tight uppercase">Neural Link Failure</h2>
         <p className="text-slate-400 mb-8 max-w-sm leading-relaxed">
           {authError === 'NETWORK_ERROR' 
-            ? "Your connection to the Firebase core was interrupted. This usually happens if the domain is not authorized or the API is blocked."
-            : "The authentication sequence timed out. Please ensure you are logged into Whop or try refreshing the session."}
+            ? "Your connection to the Firebase core was interrupted. Please ensure your Vercel domain is authorized in Firebase."
+            : "The authentication sequence timed out. Check your network or refresh the session."}
         </p>
-        <button 
-          onClick={() => window.location.reload()} 
-          className="px-10 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black transition-all shadow-xl shadow-indigo-600/20 active:scale-95"
-        >
+        <button onClick={() => window.location.reload()} className="px-10 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black shadow-xl shadow-indigo-600/20 active:scale-95 transition-all">
           RETRY INITIALIZATION
         </button>
       </div>
     );
   }
 
-  // Fallback content for AI Tutor if database is empty
-  const activeContent = courseData.content || "Welcome to your Course Companion. I am currently in standby mode waiting for lesson data to be synced from the Whop creator dashboard. Once synced, I can answer questions, summarize lessons, and generate practice quizzes based on your specific course material.";
+  const activeContent = courseData.content || "Welcome to your Course Companion. Once the creator syncs their lesson data, I can assist you with summaries and quizzes.";
 
   if (!user) {
     return (
@@ -156,7 +158,7 @@ export default function App({ initialAuthToken }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#020617] text-slate-200 p-4 md:p-8 selection:bg-indigo-500/40 font-sans">
+    <div className="min-h-screen bg-[#020617] text-slate-200 p-4 md:p-8 font-sans selection:bg-indigo-500/40">
       <div className="max-w-7xl mx-auto space-y-6">
         <nav className="flex flex-col md:flex-row items-center justify-between gap-6 p-4 rounded-3xl bg-slate-900/40 border border-white/5">
           <div className="flex items-center gap-4">
@@ -182,7 +184,7 @@ export default function App({ initialAuthToken }) {
 
         <main className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-8 space-y-6">
-            {view === 'chat' && (
+            {view === 'chat' ? (
               <div className={`${glassStyle} h-[650px] flex flex-col relative overflow-hidden`}>
                 <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth">
                   {messages.length === 0 && (
@@ -191,8 +193,8 @@ export default function App({ initialAuthToken }) {
                         <Sparkles size={32} className="animate-pulse" />
                       </div>
                       <h2 className="text-2xl font-black uppercase tracking-tighter">AI Tutor Engaged</h2>
-                      <p className="text-slate-500 text-sm max-w-xs mx-auto font-medium">
-                        {courseData.content ? "I've analyzed the course material. What would you like to clarify?" : "I'm ready. I'll automatically sync with your lessons as the creator updates them."}
+                      <p className="text-slate-500 text-sm max-w-xs mx-auto font-medium leading-relaxed">
+                        {courseData.content ? "I've analyzed the material. How can I help you learn today?" : "Ready for instructions. Sync your course content to begin training."}
                       </p>
                     </div>
                   )}
@@ -210,37 +212,37 @@ export default function App({ initialAuthToken }) {
                       type="text" value={input} onChange={(e)=>setInput(e.target.value)}
                       onKeyPress={(e)=>e.key==='Enter' && handleSendMessage()}
                       placeholder="Ask about the course material..."
-                      className="w-full bg-slate-950 border border-slate-800 rounded-2xl py-4 pl-5 pr-14 focus:border-indigo-500 transition-all outline-none shadow-inner text-white placeholder:text-slate-600"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-2xl py-4 pl-5 pr-14 focus:border-indigo-500 transition-all outline-none text-white placeholder:text-slate-600 shadow-inner"
                     />
-                    <button 
-                      onClick={handleSendMessage} 
-                      disabled={loading || !input.trim()} 
-                      className="absolute right-2 top-2 bottom-2 px-5 bg-indigo-600 rounded-xl hover:bg-indigo-500 transition-colors disabled:opacity-30 text-white"
-                    >
+                    <button onClick={handleSendMessage} disabled={loading || !input.trim()} className="absolute right-2 top-2 bottom-2 px-5 bg-indigo-600 rounded-xl hover:bg-indigo-500 transition-colors disabled:opacity-30 text-white">
                       <Send size={18} />
                     </button>
                   </div>
                 </div>
               </div>
+            ) : (
+               <div className={`${glassStyle} p-12 text-center`}>
+                  <h2 className="text-2xl font-black text-white uppercase tracking-widest">{view} Mode Locked</h2>
+                  <p className="text-slate-500 mt-2">Finish initializing the tutor first to unlock further training modules.</p>
+               </div>
             )}
-            {/* View logic for 'quiz' and 'admin' remains standard */}
           </div>
 
           <aside className="lg:col-span-4 space-y-6">
             <div className={`${glassStyle} p-6 space-y-6`}>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between border-b border-white/5 pb-4">
                 <div className="flex items-center gap-2 text-indigo-400 font-black text-sm uppercase tracking-tighter">
-                  <Globe size={16} /> Leaderboard
+                  <Globe size={16} /> Global Leaderboard
                 </div>
               </div>
               <div className="space-y-3">
                 {leaderboard.map((entry, i) => (
-                  <div key={entry.id || i} className="flex items-center justify-between p-3 rounded-2xl bg-slate-950/50 border border-white/5">
+                  <div key={entry.id || i} className="flex items-center justify-between p-3 rounded-2xl bg-slate-950/50 border border-white/5 hover:border-indigo-500/30 transition-colors group">
                     <span className="text-xs font-bold text-slate-300">#0{i+1} {entry.username || 'Anonymous'}</span>
-                    <span className="text-sm font-black text-white">{entry.score || 0}</span>
+                    <span className="text-sm font-black text-white group-hover:text-indigo-400 transition-colors">{entry.score || 0}</span>
                   </div>
                 ))}
-                {leaderboard.length === 0 && <div className="text-center py-4 text-[10px] text-slate-600 font-bold uppercase tracking-widest">No Rankings Found</div>}
+                {leaderboard.length === 0 && <div className="text-center py-6 text-[10px] text-slate-600 font-bold uppercase tracking-[0.2em]">Awaiting Champions</div>}
               </div>
             </div>
           </aside>
@@ -266,10 +268,10 @@ export default function App({ initialAuthToken }) {
         })
       });
       const data = await res.json();
-      const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "I'm having trouble processing that right now.";
+      const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "The neural link is fuzzy. Could you repeat that?";
       setMessages(p => [...p, { role: 'assistant', text: aiResponse }]);
     } catch (error) {
-      setMessages(p => [...p, { role: 'assistant', text: "Signal lost. Check your API key or network." }]);
+      setMessages(p => [...p, { role: 'assistant', text: "Signal lost. Check your API key or network status." }]);
     } finally {
       setLoading(false);
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -279,7 +281,7 @@ export default function App({ initialAuthToken }) {
 
 function NavBtn({ active, onClick, icon, label }) {
   return (
-    <button onClick={onClick} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all font-bold text-xs uppercase tracking-tight ${active ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>
+    <button onClick={onClick} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all font-bold text-xs uppercase tracking-tight ${active ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20 scale-105' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>
       {icon} <span>{label}</span>
     </button>
   );
