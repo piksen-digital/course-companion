@@ -260,6 +260,16 @@ export default function App({ initialAuthToken }) {
           </aside>
         </main>
       </div>
+
+      <footer className="mt-8 pb-4 text-center">
+        <a 
+          href="https://gist.githubusercontent.com/piksen-digital/b944c5ba017dfc5c3d53d7eb1b195112/raw/c43575c9a525c37de3ec2e914d0c2129502ad02f/privacy-policy.md" 
+          target="_blank" 
+          className="text-[10px] text-slate-600 hover:text-indigo-400 transition-colors uppercase tracking-widest font-bold"
+        >
+          Privacy Policy & Terms of Service
+        </a>
+      </footer>
     </div>
   );
 
@@ -297,4 +307,4 @@ function NavBtn({ active, onClick, icon, label }) {
       {icon} <span>{label}</span>
     </button>
   );
-          }
+}
