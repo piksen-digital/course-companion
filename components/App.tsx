@@ -98,10 +98,11 @@ export default function App({ initialAuthToken }) {
       if (u) {
         clearTimeout(connectionTimeout);
         setUser(u);
-        const tokenResult = await getIdTokenResult(u);
+        // const tokenResult = await getIdTokenResult(u);
         // DEV OVERRIDE: If you want to force admin view for testing, 
         // you can also check for a specific email or UID here.
-        setIsAdmin(tokenResult.claims.whopRole === 'admin' || u.isAnonymous === false); 
+        // setIsAdmin(tokenResult.claims.whopRole === 'admin' || u.isAnonymous === false); 
+        setIsAdmin(true);
       }
     });
 
