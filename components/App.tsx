@@ -59,7 +59,7 @@ const NeuralLogo = () => (
 
 export default function App({ initialAuthToken }) {
   const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(true);
   const [view, setView] = useState('chat');
   const [authError, setAuthError] = useState(null);
   
