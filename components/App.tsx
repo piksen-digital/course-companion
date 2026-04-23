@@ -35,7 +35,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 // PREMIUM UI TOKENS
-const glassStyle = "bg-slate-950/40 backdrop-blur-3xl border border-white/5 rounded-[2.5rem] shadow-[0_0_50px_-12px_rgba(0,0,0,0.5)] transition-all duration-700";
+const glassStyle = "bg-slate-900/80 backdrop-blur-3xl border border-white/5 rounded-[2.5rem] shadow-[0_0_50px_-12px_rgba(0,0,0,0.5)] transition-all duration-700";
 const glowBorder = "ring-1 ring-white/10 shadow-[0_0_20px_rgba(99,102,241,0.15)] focus-within:shadow-[0_0_30px_rgba(99,102,241,0.3)] transition-all duration-500";
 
 const NeuralLogo = () => (
@@ -87,9 +87,7 @@ export default function App({ initialAuthToken }) {
       if (u) {
         setUser(u);
         const tokenResult = await getIdTokenResult(u);
-        // During dev, we force admin to true to allow mocking.
-        // In production, tokenResult.claims.whopRole === 'admin' handles security.
-        setIsAdmin(true); 
+        setIsAdmin(tokenResult.claims.whopRole === 'admin' || true); // Force true for dev/preview
       }
     });
     return () => unsubscribe();
@@ -115,58 +113,39 @@ export default function App({ initialAuthToken }) {
     return () => { unsubCourse(); unsubBoard(); };
   }, [user]);
 
-  const handleMockSync = async () => {
-    try {
-      setLoading(true);
-      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'course_config', 'main'), {
-        content: "NEURAL ACADEMY KNOWLEDGE: This course specializes in Invisible SaaS architecture. We use Firebase for real-time data persistence and Gemini for high-performance RAG tutoring. Fact: The first rule of the Neural Academy is that knowledge is dynamic. Fact: Our AI is specifically trained on high-performance Tailwind UI patterns.",
-        lastUpdated: serverTimestamp()
-      });
-      setLoading(false);
-      alert("Neural Knowledge Base Seeded Successfully.");
-    } catch (e) {
-      setLoading(false);
-      alert("Sync Failed: Check Firestore Rules (See Rules Protocol Step 1).");
-    }
-  };
-
   /**
-   * ELITE RAG ENHANCEMENT: Rolling History + Strict Context Injection
+   * ELITE RAG ENHANCEMENT
    */
   async function handleSendMessage() {
-    if (!input.trim() || loading || !geminiKey) return;
+    if (!input.trim() || loading) return;
     
+    if (!geminiKey) {
+      setMessages(p => [...p, { role: 'assistant', text: "⚠ CONFIG ERROR: NEXT_PUBLIC_GEMINI_API_KEY is missing." }]);
+      return;
+    }
+
     const userText = input;
-    // Rolling history for conversational memory
-    const updatedMessages = [...messages, { role: 'user', text: userText }];
-    setMessages(updatedMessages);
+    const updatedHistory = [...messages, { role: 'user', text: userText }];
+    setMessages(updatedHistory);
     setInput('');
     setLoading(true);
     
     try {
-      // Use 1.5-flash for the highest stability-to-speed ratio in the preview env
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${geminiKey}`;
       
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          contents: updatedMessages.map(m => ({
+          contents: updatedHistory.map(m => ({
             role: m.role === 'user' ? 'user' : 'model',
             parts: [{ text: m.text }]
           })), 
           systemInstruction: { 
             parts: [{ 
               text: `You are the "Companion Pro" Elite Neural Tutor. 
-
-              CORE KNOWLEDGE BASE: 
-              ${courseData.content || 'No course data provided yet.'}
-
-              INSTRUCTIONS:
-              1. Use ONLY the provided Knowledge Base to answer questions.
-              2. If the answer isn't in the Knowledge Base, politely guide them back to the course topics.
-              3. Be concise, professional, and encouraging.
-              4. Format mathematical formulas using LaTeX $ syntax.` 
+              CORE KNOWLEDGE BASE: ${courseData.content || 'No course data provided yet.'}
+              INSTRUCTIONS: 1. Use ONLY the provided knowledge base. 2. If unknown, guide back to course. 3. Be concise and professional.` 
             }] 
           } 
         })
@@ -178,27 +157,43 @@ export default function App({ initialAuthToken }) {
       const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "Neural connection interrupted.";
       setMessages(p => [...p, { role: 'assistant', text: aiResponse }]);
     } catch (e: any) { 
-      setMessages(p => [...p, { role: 'assistant', text: `CRITICAL LINK FAILURE: ${e.message}` }]); 
+      setMessages(p => [...p, { role: 'assistant', text: `PROTOCOL ERROR: ${e.message}` }]); 
     } finally {
       setLoading(false);
       setTimeout(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }), 100);
     }
   }
 
+  const handleMockSync = async () => {
+    try {
+      setLoading(true);
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'course_config', 'main'), {
+        content: "NEURAL ACADEMY KNOWLEDGE: This course specializes in Invisible SaaS architecture. Fact: Knowledge is dynamic. Fact: Our AI uses high-performance Tailwind UI patterns.",
+        lastUpdated: serverTimestamp()
+      });
+      setLoading(false);
+      alert("Neural Knowledge Base Seeded.");
+    } catch (e) {
+      setLoading(false);
+      alert("Sync Failed. Check Firestore Rules.");
+    }
+  };
+
   if (authError) return <FailureState error={authError} />;
   if (!user) return <LoadingState />;
 
   return (
-    <div className="min-h-screen bg-[#020205] text-slate-200 p-4 md:p-10 font-sans selection:bg-indigo-500/30 overflow-x-hidden">
-      {/* AMBIENT BACKGROUND GLOWS */}
-      <div className="fixed inset-0 pointer-events-none opacity-20">
-        <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-indigo-600/20 blur-[150px] rounded-full" />
-        <div className="absolute bottom-0 left-0 w-[600px] h-[600px] bg-purple-600/20 blur-[150px] rounded-full" />
+    <div className="min-h-screen bg-[#020205] text-slate-200 p-4 md:p-10 font-sans selection:bg-indigo-500/30 overflow-x-hidden relative">
+      {/* RESTORED PREMIUM BACKGROUND PATTERN */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] opacity-20" />
+        <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-indigo-600/10 blur-[150px] rounded-full" />
+        <div className="absolute bottom-0 left-0 w-[600px] h-[600px] bg-purple-600/10 blur-[150px] rounded-full" />
       </div>
 
       <div className="max-w-7xl mx-auto space-y-8 relative z-10">
-        {/* NAV SECTION */}
-        <nav className="flex flex-col md:flex-row items-center justify-between gap-8 p-6 rounded-[2.5rem] bg-white/[0.03] border border-white/5 backdrop-blur-xl shadow-2xl">
+        {/* NAV SECTION - SLATE 900 COMPLEMENTARY COLOR */}
+        <nav className="flex flex-col md:flex-row items-center justify-between gap-8 p-6 rounded-[2.5rem] bg-slate-900/60 border border-white/5 backdrop-blur-xl shadow-2xl">
           <div className="flex items-center gap-6">
             <NeuralLogo />
             <div>
@@ -226,22 +221,22 @@ export default function App({ initialAuthToken }) {
                   {messages.length === 0 && <WelcomeUI content={courseData.content} />}
                   {messages.map((m, i) => (
                     <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-4 duration-500`}>
-                      <div className={`max-w-[85%] p-6 rounded-[2rem] text-[15px] leading-relaxed shadow-2xl ${m.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white/5 border border-white/5 text-slate-200 rounded-tl-none backdrop-blur-md'}`}>
+                      <div className={`max-w-[85%] p-6 rounded-[2rem] text-[15px] leading-relaxed shadow-2xl ${m.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none shadow-indigo-600/20' : 'bg-slate-800/40 border border-white/5 text-slate-200 rounded-tl-none backdrop-blur-md'}`}>
                         {m.text}
                       </div>
                     </div>
                   ))}
                   {loading && <div className="flex gap-2 p-4 animate-pulse"><div className="w-1.5 h-1.5 bg-indigo-500 rounded-full"/><div className="w-1.5 h-1.5 bg-purple-500 rounded-full"/><div className="w-1.5 h-1.5 bg-pink-500 rounded-full"/></div>}
                 </div>
-                <div className="p-8 border-t border-white/5 bg-black/20">
+                <div className="p-8 border-t border-white/5 bg-black/20 backdrop-blur-xl">
                   <div className="relative group">
                     <input 
                       type="text" value={input} onChange={(e)=>setInput(e.target.value)}
                       onKeyPress={(e)=>e.key==='Enter' && handleSendMessage()}
                       placeholder="Access neural knowledge base..."
-                      className="w-full bg-black border border-white/10 rounded-[1.5rem] py-5 pl-8 pr-16 focus:border-indigo-500 outline-none text-white transition-all shadow-inner"
+                      className="w-full bg-black/60 border border-white/10 rounded-[1.5rem] py-5 pl-8 pr-16 focus:border-indigo-500 outline-none text-white transition-all shadow-inner"
                     />
-                    <button onClick={handleSendMessage} className="absolute right-3 top-3 bottom-3 px-6 bg-indigo-600 rounded-xl hover:bg-indigo-500 transition-all text-white shadow-lg shadow-indigo-600/20 active:scale-95">
+                    <button onClick={handleSendMessage} disabled={loading} className="absolute right-3 top-3 bottom-3 px-6 bg-indigo-600 rounded-xl hover:bg-indigo-500 transition-all text-white shadow-lg shadow-indigo-600/20 active:scale-95 disabled:opacity-50">
                       <Send size={18} />
                     </button>
                   </div>
@@ -250,7 +245,7 @@ export default function App({ initialAuthToken }) {
             )}
 
             {view === 'admin' && (
-              <div className={`${glassStyle} p-10 space-y-8 animate-in zoom-in-95 duration-500`}>
+              <div className={`${glassStyle} p-10 space-y-8 animate-in zoom-in-95 duration-500 bg-slate-900/90`}>
                 <div className="flex items-center gap-4">
                   <ShieldCheck className="text-indigo-400" size={32} />
                   <h2 className="text-2xl font-black uppercase tracking-tight">Neural Console</h2>
@@ -260,7 +255,7 @@ export default function App({ initialAuthToken }) {
                   <textarea 
                     value={adminInput} onChange={(e)=>setAdminInput(e.target.value)}
                     placeholder="Paste lesson data for AI training..."
-                    className="w-full h-64 bg-black border border-white/10 rounded-3xl p-8 text-sm focus:border-indigo-500 outline-none text-slate-300 leading-relaxed"
+                    className="w-full h-64 bg-black/60 border border-white/10 rounded-3xl p-8 text-sm focus:border-indigo-500 outline-none text-slate-300 leading-relaxed"
                   />
                   <div className="flex gap-4">
                     <button onClick={async ()=>{
@@ -280,7 +275,7 @@ export default function App({ initialAuthToken }) {
 
           {/* ASIDE / LEADERBOARD */}
           <aside className="lg:col-span-4 space-y-8">
-            <div className={`${glassStyle} p-8 relative overflow-hidden`}>
+            <div className={`${glassStyle} p-8 relative overflow-hidden bg-slate-900/40`}>
               <h3 className="text-xs font-black text-white uppercase tracking-[0.3em] mb-8 border-b border-white/5 pb-4 flex items-center gap-2">
                 <Globe size={14} className="text-indigo-400" /> Sector Rankings
               </h3>
@@ -306,7 +301,7 @@ export default function App({ initialAuthToken }) {
         </main>
 
         <footer className="pt-10 pb-4 text-center border-t border-white/5">
-          <a href="https://gist.github.com" target="_blank" className="text-[10px] text-slate-600 hover:text-indigo-400 transition-colors uppercase tracking-[0.4em] font-black">
+          <a href="#" className="text-[10px] text-slate-600 hover:text-indigo-400 transition-colors uppercase tracking-[0.4em] font-black">
             Security & Privacy Protocols
           </a>
         </footer>
@@ -358,4 +353,4 @@ function FailureState({ error }) {
       <button onClick={() => window.location.reload()} className="mt-10 px-10 py-4 bg-white text-black rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-2xl">Reboot Initialization</button>
     </div>
   );
-                       }
+    }
