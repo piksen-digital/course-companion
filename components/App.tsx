@@ -56,30 +56,36 @@ const NeuralLogo = () => (
   </svg>
 );
 
-export default function App({ initialAuthToken }) {
-  const [user, setUser] = useState(null);
+export default function App({ initialAuthToken }: { initialAuthToken?: string }) {
+  const [user, setUser] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [view, setView] = useState('chat');
-  const [authError, setAuthError] = useState(null);
+  const [authError, setAuthError] = useState<string | null>(null);
   
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [courseData, setCourseData] = useState({ content: "", lastUpdated: null });
-  const [leaderboard, setLeaderboard] = useState([]);
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [adminInput, setAdminInput] = useState('');
   const [isDataLoaded, setIsDataLoaded] = useState(false);
 
-  const scrollRef = useRef(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // AUTHENTICATION FLOW
   useEffect(() => {
     const initAuth = async () => {
       try {
         const token = initialAuthToken || (typeof window !== 'undefined' && (window as any).__initial_auth_token);
-        if (token) await signInWithCustomToken(auth, token);
-        else await signInAnonymously(auth);
-      } catch (e: any) { setAuthError("AUTH_FAILED"); }
+        if (token) {
+          await signInWithCustomToken(auth, token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (e: any) { 
+        console.error("Auth Error:", e);
+        setAuthError("AUTH_FAILED"); 
+      }
     };
     initAuth();
 
@@ -87,7 +93,8 @@ export default function App({ initialAuthToken }) {
       if (u) {
         setUser(u);
         const tokenResult = await getIdTokenResult(u);
-        setIsAdmin(tokenResult.claims.whopRole === 'admin' || true); // Force true for dev/preview
+        // Force admin for dev if needed, or check claims
+        setIsAdmin(tokenResult.claims.whopRole === 'admin');
       }
     });
     return () => unsubscribe();
@@ -114,7 +121,7 @@ export default function App({ initialAuthToken }) {
   }, [user]);
 
   /**
-   * ELITE RAG ENHANCEMENT
+   * ELITE RAG ENHANCEMENT - FIX: Gemini 1.5 Flash Model
    */
   async function handleSendMessage() {
     if (!input.trim() || loading) return;
@@ -131,7 +138,8 @@ export default function App({ initialAuthToken }) {
     setLoading(true);
     
     try {
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${geminiKey}`;
+      // USE STABLE MODEL VERSION
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
       
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -145,7 +153,7 @@ export default function App({ initialAuthToken }) {
             parts: [{ 
               text: `You are the "Companion Pro" Elite Neural Tutor. 
               CORE KNOWLEDGE BASE: ${courseData.content || 'No course data provided yet.'}
-              INSTRUCTIONS: 1. Use ONLY the provided knowledge base. 2. If unknown, guide back to course. 3. Be concise and professional.` 
+              INSTRUCTIONS: 1. Use ONLY the provided knowledge base to answer. 2. If the answer isn't in the knowledge base, politely inform the user you are restricted to course material. 3. Maintain a helpful, professional, and elite tone.` 
             }] 
           } 
         })
@@ -157,6 +165,7 @@ export default function App({ initialAuthToken }) {
       const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "Neural connection interrupted.";
       setMessages(p => [...p, { role: 'assistant', text: aiResponse }]);
     } catch (e: any) { 
+      console.error("Gemini Error:", e);
       setMessages(p => [...p, { role: 'assistant', text: `PROTOCOL ERROR: ${e.message}` }]); 
     } finally {
       setLoading(false);
@@ -192,7 +201,7 @@ export default function App({ initialAuthToken }) {
       </div>
 
       <div className="max-w-7xl mx-auto space-y-8 relative z-10">
-        {/* NAV SECTION - SLATE 900 COMPLEMENTARY COLOR */}
+        {/* NAV SECTION */}
         <nav className="flex flex-col md:flex-row items-center justify-between gap-8 p-6 rounded-[2.5rem] bg-slate-900/60 border border-white/5 backdrop-blur-xl shadow-2xl">
           <div className="flex items-center gap-6">
             <NeuralLogo />
@@ -273,7 +282,6 @@ export default function App({ initialAuthToken }) {
             )}
           </div>
 
-          {/* ASIDE / LEADERBOARD */}
           <aside className="lg:col-span-4 space-y-8">
             <div className={`${glassStyle} p-8 relative overflow-hidden bg-slate-900/40`}>
               <h3 className="text-xs font-black text-white uppercase tracking-[0.3em] mb-8 border-b border-white/5 pb-4 flex items-center gap-2">
@@ -310,7 +318,7 @@ export default function App({ initialAuthToken }) {
   );
 }
 
-function NavBtn({ active, onClick, icon, label }) {
+function NavBtn({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) {
   return (
     <button onClick={onClick} className={`flex items-center gap-3 px-6 py-3 rounded-xl transition-all font-black text-xs uppercase tracking-widest ${active ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/40 scale-105' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>
       {icon} <span>{label}</span>
@@ -318,7 +326,7 @@ function NavBtn({ active, onClick, icon, label }) {
   );
 }
 
-function WelcomeUI({ content }) {
+function WelcomeUI({ content }: { content: string }) {
   return (
     <div className="h-full flex flex-col items-center justify-center text-center space-y-6 max-w-sm mx-auto animate-in fade-in zoom-in duration-700">
       <div className="w-24 h-24 bg-indigo-500/10 rounded-[2.5rem] flex items-center justify-center text-indigo-400 relative">
@@ -344,7 +352,7 @@ function LoadingState() {
   );
 }
 
-function FailureState({ error }) {
+function FailureState({ error }: { error: string }) {
   return (
     <div className="h-screen bg-[#020205] flex flex-col items-center justify-center p-6 text-center">
       <AlertCircle size={48} className="text-red-500 mb-6" />
@@ -353,4 +361,4 @@ function FailureState({ error }) {
       <button onClick={() => window.location.reload()} className="mt-10 px-10 py-4 bg-white text-black rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-2xl">Reboot Initialization</button>
     </div>
   );
-    }
+}
