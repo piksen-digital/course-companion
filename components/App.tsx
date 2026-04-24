@@ -83,7 +83,6 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
           await signInAnonymously(auth);
         }
       } catch (e: any) { 
-        console.error("Auth Error:", e);
         setAuthError("AUTH_FAILED"); 
       }
     };
@@ -93,7 +92,7 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
       if (u) {
         setUser(u);
         const tokenResult = await getIdTokenResult(u);
-        // Force admin for dev if needed, or check claims
+        // Claims come from Whop Auth custom token
         setIsAdmin(tokenResult.claims.whopRole === 'admin');
       }
     });
@@ -106,7 +105,9 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
     
     const unsubCourse = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'course_config', 'main'), (s) => {
       if (s.exists()) {
-        setCourseData(s.data() as any);
+        const data = s.data() as any;
+        setCourseData(data);
+        setAdminInput(data.content || "");
         setIsDataLoaded(true);
       } else {
         setIsDataLoaded(false);
@@ -121,39 +122,39 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
   }, [user]);
 
   /**
-   * ELITE RAG ENHANCEMENT - FIX: Gemini 1.5 Flash Model
+   * ELITE RAG ENHANCEMENT - FIXED MODEL STRINGS
    */
   async function handleSendMessage() {
     if (!input.trim() || loading) return;
     
     if (!geminiKey) {
-      setMessages(p => [...p, { role: 'assistant', text: "⚠ CONFIG ERROR: NEXT_PUBLIC_GEMINI_API_KEY is missing." }]);
+      setMessages(p => [...p, { role: 'assistant', text: "⚠ API Key missing in environment." }]);
       return;
     }
 
     const userText = input;
-    const updatedHistory = [...messages, { role: 'user', text: userText }];
-    setMessages(updatedHistory);
+    const history = [...messages, { role: 'user', text: userText }];
+    setMessages(history);
     setInput('');
     setLoading(true);
     
     try {
-      // USE STABLE MODEL VERSION
+      // FIX: Changed to production-stable gemini-1.5-flash
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
       
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          contents: updatedHistory.map(m => ({
+          contents: history.map(m => ({
             role: m.role === 'user' ? 'user' : 'model',
             parts: [{ text: m.text }]
           })), 
           systemInstruction: { 
             parts: [{ 
               text: `You are the "Companion Pro" Elite Neural Tutor. 
-              CORE KNOWLEDGE BASE: ${courseData.content || 'No course data provided yet.'}
-              INSTRUCTIONS: 1. Use ONLY the provided knowledge base to answer. 2. If the answer isn't in the knowledge base, politely inform the user you are restricted to course material. 3. Maintain a helpful, professional, and elite tone.` 
+              CORE KNOWLEDGE BASE: ${courseData.content || 'Awaiting synchronization.'}
+              INSTRUCTIONS: 1. Use ONLY the provided knowledge base. 2. If unknown, guide back to course. 3. Be concise and professional.` 
             }] 
           } 
         })
@@ -162,10 +163,9 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
       const data = await res.json();
       if (data.error) throw new Error(data.error.message);
 
-      const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "Neural connection interrupted.";
+      const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "Response logic failure.";
       setMessages(p => [...p, { role: 'assistant', text: aiResponse }]);
     } catch (e: any) { 
-      console.error("Gemini Error:", e);
       setMessages(p => [...p, { role: 'assistant', text: `PROTOCOL ERROR: ${e.message}` }]); 
     } finally {
       setLoading(false);
@@ -173,18 +173,18 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
     }
   }
 
-  const handleMockSync = async () => {
+  const handleUpdateCourse = async () => {
     try {
       setLoading(true);
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'course_config', 'main'), {
-        content: "NEURAL ACADEMY KNOWLEDGE: This course specializes in Invisible SaaS architecture. Fact: Knowledge is dynamic. Fact: Our AI uses high-performance Tailwind UI patterns.",
+        content: adminInput,
         lastUpdated: serverTimestamp()
       });
       setLoading(false);
-      alert("Neural Knowledge Base Seeded.");
+      alert("Neural Knowledge Base Updated Successfully.");
     } catch (e) {
       setLoading(false);
-      alert("Sync Failed. Check Firestore Rules.");
+      alert("Failed to update database. Verify your Firestore Security Rules.");
     }
   };
 
@@ -193,7 +193,6 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
 
   return (
     <div className="min-h-screen bg-[#020205] text-slate-200 p-4 md:p-10 font-sans selection:bg-indigo-500/30 overflow-x-hidden relative">
-      {/* RESTORED PREMIUM BACKGROUND PATTERN */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] opacity-20" />
         <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-indigo-600/10 blur-[150px] rounded-full" />
@@ -201,16 +200,15 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
       </div>
 
       <div className="max-w-7xl mx-auto space-y-8 relative z-10">
-        {/* NAV SECTION */}
         <nav className="flex flex-col md:flex-row items-center justify-between gap-8 p-6 rounded-[2.5rem] bg-slate-900/60 border border-white/5 backdrop-blur-xl shadow-2xl">
           <div className="flex items-center gap-6">
             <NeuralLogo />
             <div>
               <h1 className="text-2xl font-black text-white tracking-tight uppercase">Companion<span className="text-indigo-400">Pro</span></h1>
               <div className="flex items-center gap-3">
-                <span className={`flex h-2 w-2 rounded-full transition-all duration-1000 ${isDataLoaded ? 'bg-emerald-500 shadow-[0_0_15px_#10b981]' : 'bg-amber-500 animate-pulse shadow-[0_0_15px_#f59e0b]'}`} />
+                <span className={`flex h-2 w-2 rounded-full ${isDataLoaded ? 'bg-emerald-500 shadow-[0_0_15px_#10b981]' : 'bg-amber-500 animate-pulse'}`} />
                 <span className="text-[10px] uppercase font-bold text-slate-400 tracking-[0.3em]">
-                  {isDataLoaded ? 'Quantum Link Active' : 'Standby: Neural Sync Pending'}
+                  {isDataLoaded ? 'Quantum Link Active' : 'Neural Sync Pending'}
                 </span>
               </div>
             </div>
@@ -226,7 +224,7 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
           <div className="lg:col-span-8 space-y-8">
             {view === 'chat' && (
               <div className={`${glassStyle} ${glowBorder} h-[700px] flex flex-col relative overflow-hidden`}>
-                <div ref={scrollRef} className="flex-1 overflow-y-auto p-8 space-y-8 scroll-smooth custom-scrollbar">
+                <div ref={scrollRef} className="flex-1 overflow-y-auto p-8 space-y-8 scroll-smooth">
                   {messages.length === 0 && <WelcomeUI content={courseData.content} />}
                   {messages.map((m, i) => (
                     <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-4 duration-500`}>
@@ -238,7 +236,7 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
                   {loading && <div className="flex gap-2 p-4 animate-pulse"><div className="w-1.5 h-1.5 bg-indigo-500 rounded-full"/><div className="w-1.5 h-1.5 bg-purple-500 rounded-full"/><div className="w-1.5 h-1.5 bg-pink-500 rounded-full"/></div>}
                 </div>
                 <div className="p-8 border-t border-white/5 bg-black/20 backdrop-blur-xl">
-                  <div className="relative group">
+                  <div className="relative">
                     <input 
                       type="text" value={input} onChange={(e)=>setInput(e.target.value)}
                       onKeyPress={(e)=>e.key==='Enter' && handleSendMessage()}
@@ -254,7 +252,7 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
             )}
 
             {view === 'admin' && (
-              <div className={`${glassStyle} p-10 space-y-8 animate-in zoom-in-95 duration-500 bg-slate-900/90`}>
+              <div className={`${glassStyle} p-10 space-y-8 bg-slate-900/90 animate-in zoom-in-95 duration-500`}>
                 <div className="flex items-center gap-4">
                   <ShieldCheck className="text-indigo-400" size={32} />
                   <h2 className="text-2xl font-black uppercase tracking-tight">Neural Console</h2>
@@ -263,18 +261,12 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
                   <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Knowledge Injection Port</p>
                   <textarea 
                     value={adminInput} onChange={(e)=>setAdminInput(e.target.value)}
-                    placeholder="Paste lesson data for AI training..."
-                    className="w-full h-64 bg-black/60 border border-white/10 rounded-3xl p-8 text-sm focus:border-indigo-500 outline-none text-slate-300 leading-relaxed"
+                    placeholder="Paste course content here for AI training..."
+                    className="w-full h-80 bg-black/60 border border-white/10 rounded-3xl p-8 text-sm focus:border-indigo-500 outline-none text-slate-300 leading-relaxed custom-scrollbar"
                   />
                   <div className="flex gap-4">
-                    <button onClick={async ()=>{
-                      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'course_config', 'main'), { content: adminInput, lastUpdated: serverTimestamp() });
-                      alert("Sync Complete.");
-                    }} className="flex-1 py-5 bg-indigo-600 rounded-2xl font-black uppercase text-xs tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-xl shadow-indigo-600/20">
-                      Synchronize Pathways
-                    </button>
-                    <button onClick={handleMockSync} className="px-10 py-5 border border-white/10 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-white/5 transition-colors">
-                      Inject Mock Data
+                    <button onClick={handleUpdateCourse} disabled={loading} className="flex-1 py-5 bg-indigo-600 rounded-2xl font-black uppercase text-xs tracking-widest hover:scale-[1.02] shadow-xl shadow-indigo-600/20 transition-all active:scale-95 disabled:opacity-50">
+                      {loading ? 'Synchronizing...' : 'Update Knowledge Base'}
                     </button>
                   </div>
                 </div>
@@ -289,30 +281,23 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
               </h3>
               <div className="space-y-4">
                 {leaderboard.map((entry, i) => (
-                  <div key={i} className="flex items-center justify-between p-4 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-indigo-500/30 transition-all">
+                  <div key={i} className="flex items-center justify-between p-4 rounded-2xl bg-white/[0.02] border border-white/5">
                     <span className="text-xs font-bold text-slate-400">#0{i+1} {entry.username || 'Agent_X'}</span>
                     <span className="text-sm font-black text-indigo-400">{entry.score || 0}</span>
                   </div>
                 ))}
-                {leaderboard.length === 0 && <p className="text-center py-10 text-[10px] font-black text-slate-600 uppercase tracking-widest">No Sector Data</p>}
+                {leaderboard.length === 0 && <p className="text-center py-6 text-[10px] text-slate-600 uppercase font-black tracking-widest">No Sector Data</p>}
               </div>
             </div>
-            
             <div className="p-8 rounded-[2.5rem] bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-between group hover:bg-indigo-600/15 transition-all">
               <div>
                 <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Neural Load</p>
                 <p className="text-xl font-black text-white">98.4% Efficiency</p>
               </div>
-              <Cpu className="text-indigo-500 animate-pulse group-hover:scale-110 transition-transform" />
+              <Cpu className="text-indigo-500 animate-pulse" />
             </div>
           </aside>
         </main>
-
-        <footer className="pt-10 pb-4 text-center border-t border-white/5">
-          <a href="#" className="text-[10px] text-slate-600 hover:text-indigo-400 transition-colors uppercase tracking-[0.4em] font-black">
-            Security & Privacy Protocols
-          </a>
-        </footer>
       </div>
     </div>
   );
@@ -329,13 +314,12 @@ function NavBtn({ active, onClick, icon, label }: { active: boolean, onClick: ()
 function WelcomeUI({ content }: { content: string }) {
   return (
     <div className="h-full flex flex-col items-center justify-center text-center space-y-6 max-w-sm mx-auto animate-in fade-in zoom-in duration-700">
-      <div className="w-24 h-24 bg-indigo-500/10 rounded-[2.5rem] flex items-center justify-center text-indigo-400 relative">
-        <div className="absolute inset-0 bg-indigo-500/20 blur-3xl animate-pulse rounded-full" />
-        <BrainCircuit size={48} className="relative z-10" />
+      <div className="w-24 h-24 bg-indigo-500/10 rounded-[2.5rem] flex items-center justify-center text-indigo-400">
+        <BrainCircuit size={48} />
       </div>
       <h2 className="text-2xl font-black uppercase tracking-tighter text-white">Neural Interface Ready</h2>
       <p className="text-slate-500 text-sm font-medium leading-relaxed">
-        {content ? "The link is primed with course data. Proceed with your inquiry." : "Awaiting knowledge injection via the secure administrator console."}
+        {content ? "The link is primed with course data. Proceed with your inquiry." : "Awaiting knowledge injection via the administrator console."}
       </p>
     </div>
   );
@@ -345,9 +329,7 @@ function LoadingState() {
   return (
     <div className="h-screen bg-[#020205] flex flex-col items-center justify-center space-y-10">
       <NeuralLogo />
-      <div className="text-center space-y-2">
-        <p className="text-indigo-400 font-black tracking-[0.5em] uppercase text-[10px] animate-pulse">Initializing Neural Link</p>
-      </div>
+      <p className="text-indigo-400 font-black tracking-[0.5em] uppercase text-[10px] animate-pulse">Initializing Link</p>
     </div>
   );
 }
@@ -358,7 +340,7 @@ function FailureState({ error }: { error: string }) {
       <AlertCircle size={48} className="text-red-500 mb-6" />
       <h2 className="text-xl font-black text-white uppercase tracking-widest">Protocol Failure</h2>
       <p className="text-slate-600 mt-2 text-[10px] uppercase font-bold tracking-widest">{error}</p>
-      <button onClick={() => window.location.reload()} className="mt-10 px-10 py-4 bg-white text-black rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-2xl">Reboot Initialization</button>
+      <button onClick={() => window.location.reload()} className="mt-10 px-10 py-4 bg-white text-black rounded-2xl font-black text-[10px] uppercase tracking-[0.2em]">Reboot</button>
     </div>
   );
-}
+        }
