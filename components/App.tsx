@@ -28,7 +28,7 @@ const getFirebaseConfig = () => {
 
 const firebaseConfig = getFirebaseConfig();
 const appId = process.env.NEXT_PUBLIC_WHOP_APP_ID || 'whop-pro-companion';
-const geminiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || ""; 
+const apiKey = ""; // The environment provides this key automatically at runtime.
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -92,7 +92,7 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
       if (u) {
         setUser(u);
         const tokenResult = await getIdTokenResult(u);
-        // Claims come from Whop Auth custom token
+        // Whop role verification
         setIsAdmin(tokenResult.claims.whopRole === 'admin');
       }
     });
@@ -103,6 +103,7 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
   useEffect(() => {
     if (!user) return;
     
+    // Path: /artifacts/{appId}/public/data/course_config/main
     const unsubCourse = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'course_config', 'main'), (s) => {
       if (s.exists()) {
         const data = s.data() as any;
@@ -112,26 +113,21 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
       } else {
         setIsDataLoaded(false);
       }
-    });
+    }, (err) => console.error("Firestore access error:", err));
 
     const unsubBoard = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard'), (s) => {
       setLeaderboard(s.docs.map(d => ({ id: d.id, ...d.data() } as any)).sort((a,b) => (b.score||0)-(a.score||0)).slice(0, 5));
-    });
+    }, (err) => console.error("Leaderboard access error:", err));
 
     return () => { unsubCourse(); unsubBoard(); };
   }, [user]);
 
   /**
-   * ELITE RAG ENHANCEMENT - FIXED MODEL STRINGS
+   * ELITE AI INTERACTION
    */
   async function handleSendMessage() {
     if (!input.trim() || loading) return;
     
-    if (!geminiKey) {
-      setMessages(p => [...p, { role: 'assistant', text: "⚠ API Key missing in environment." }]);
-      return;
-    }
-
     const userText = input;
     const history = [...messages, { role: 'user', text: userText }];
     setMessages(history);
@@ -139,8 +135,8 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
     setLoading(true);
     
     try {
-      // FIX: Changed to production-stable gemini-1.5-flash
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+      // MANDATORY MODEL STRING FOR THIS PREVIEW ENVIRONMENT
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
       
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -153,8 +149,11 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
           systemInstruction: { 
             parts: [{ 
               text: `You are the "Companion Pro" Elite Neural Tutor. 
-              CORE KNOWLEDGE BASE: ${courseData.content || 'Awaiting synchronization.'}
-              INSTRUCTIONS: 1. Use ONLY the provided knowledge base. 2. If unknown, guide back to course. 3. Be concise and professional.` 
+              COURSE KNOWLEDGE: ${courseData.content || 'Wait for admin data injection.'}
+              INSTRUCTIONS: 
+              1. Only answer using the course knowledge provided above. 
+              2. If the answer is not in the knowledge base, say: "That information is outside my current neural pathway. Please stick to the course material." 
+              3. Keep answers technical, elite, and helpful.` 
             }] 
           } 
         })
@@ -163,7 +162,7 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
       const data = await res.json();
       if (data.error) throw new Error(data.error.message);
 
-      const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "Response logic failure.";
+      const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "Neural uplink failure.";
       setMessages(p => [...p, { role: 'assistant', text: aiResponse }]);
     } catch (e: any) { 
       setMessages(p => [...p, { role: 'assistant', text: `PROTOCOL ERROR: ${e.message}` }]); 
@@ -174,6 +173,7 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
   }
 
   const handleUpdateCourse = async () => {
+    if (!user) return;
     try {
       setLoading(true);
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'course_config', 'main'), {
@@ -181,10 +181,10 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
         lastUpdated: serverTimestamp()
       });
       setLoading(false);
-      alert("Neural Knowledge Base Updated Successfully.");
-    } catch (e) {
+      alert("Neural database updated.");
+    } catch (e: any) {
       setLoading(false);
-      alert("Failed to update database. Verify your Firestore Security Rules.");
+      alert(`Update failed. Ensure Firestore rules are set to Allow Read/Write.`);
     }
   };
 
@@ -206,9 +206,9 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
             <div>
               <h1 className="text-2xl font-black text-white tracking-tight uppercase">Companion<span className="text-indigo-400">Pro</span></h1>
               <div className="flex items-center gap-3">
-                <span className={`flex h-2 w-2 rounded-full ${isDataLoaded ? 'bg-emerald-500 shadow-[0_0_15px_#10b981]' : 'bg-amber-500 animate-pulse'}`} />
+                <span className={`flex h-2 w-2 rounded-full ${isDataLoaded ? 'bg-emerald-500 shadow-[0_0_15px_#10b981]' : 'bg-amber-500 animate-pulse shadow-[0_0_15px_#f59e0b]'}`} />
                 <span className="text-[10px] uppercase font-bold text-slate-400 tracking-[0.3em]">
-                  {isDataLoaded ? 'Quantum Link Active' : 'Neural Sync Pending'}
+                  {isDataLoaded ? 'Quantum Link Active' : 'Standby: Data Sync Required'}
                 </span>
               </div>
             </div>
@@ -216,7 +216,10 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
           <div className="flex items-center gap-2 p-1.5 bg-black/40 rounded-[1.5rem] border border-white/5">
             <NavBtn active={view==='chat'} onClick={()=>setView('chat')} icon={<BrainCircuit size={18}/>} label="Tutor" />
             <NavBtn active={view==='quiz'} onClick={()=>setView('quiz')} icon={<Trophy size={18}/>} label="Arena" />
-            {isAdmin && <NavBtn active={view==='admin'} onClick={()=>setView('admin')} icon={<Terminal size={18}/>} label="Console" />}
+            {/* Console visible for Admins OR if database is currently empty */}
+            {(isAdmin || !isDataLoaded) && (
+              <NavBtn active={view==='admin'} onClick={()=>setView('admin')} icon={<Terminal size={18}/>} label="Console" />
+            )}
           </div>
         </nav>
 
@@ -224,11 +227,11 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
           <div className="lg:col-span-8 space-y-8">
             {view === 'chat' && (
               <div className={`${glassStyle} ${glowBorder} h-[700px] flex flex-col relative overflow-hidden`}>
-                <div ref={scrollRef} className="flex-1 overflow-y-auto p-8 space-y-8 scroll-smooth">
+                <div ref={scrollRef} className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
                   {messages.length === 0 && <WelcomeUI content={courseData.content} />}
                   {messages.map((m, i) => (
                     <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-4 duration-500`}>
-                      <div className={`max-w-[85%] p-6 rounded-[2rem] text-[15px] leading-relaxed shadow-2xl ${m.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none shadow-indigo-600/20' : 'bg-slate-800/40 border border-white/5 text-slate-200 rounded-tl-none backdrop-blur-md'}`}>
+                      <div className={`max-w-[85%] p-6 rounded-[2rem] text-[15px] shadow-2xl ${m.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-slate-800/40 border border-white/5 text-slate-200 rounded-tl-none backdrop-blur-md'}`}>
                         {m.text}
                       </div>
                     </div>
@@ -240,10 +243,10 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
                     <input 
                       type="text" value={input} onChange={(e)=>setInput(e.target.value)}
                       onKeyPress={(e)=>e.key==='Enter' && handleSendMessage()}
-                      placeholder="Access neural knowledge base..."
+                      placeholder="Consult neural core..."
                       className="w-full bg-black/60 border border-white/10 rounded-[1.5rem] py-5 pl-8 pr-16 focus:border-indigo-500 outline-none text-white transition-all shadow-inner"
                     />
-                    <button onClick={handleSendMessage} disabled={loading} className="absolute right-3 top-3 bottom-3 px-6 bg-indigo-600 rounded-xl hover:bg-indigo-500 transition-all text-white shadow-lg shadow-indigo-600/20 active:scale-95 disabled:opacity-50">
+                    <button onClick={handleSendMessage} disabled={loading} className="absolute right-3 top-3 bottom-3 px-6 bg-indigo-600 rounded-xl hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 active:scale-95 disabled:opacity-50">
                       <Send size={18} />
                     </button>
                   </div>
@@ -261,14 +264,12 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
                   <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Knowledge Injection Port</p>
                   <textarea 
                     value={adminInput} onChange={(e)=>setAdminInput(e.target.value)}
-                    placeholder="Paste course content here for AI training..."
+                    placeholder="Paste course data here..."
                     className="w-full h-80 bg-black/60 border border-white/10 rounded-3xl p-8 text-sm focus:border-indigo-500 outline-none text-slate-300 leading-relaxed custom-scrollbar"
                   />
-                  <div className="flex gap-4">
-                    <button onClick={handleUpdateCourse} disabled={loading} className="flex-1 py-5 bg-indigo-600 rounded-2xl font-black uppercase text-xs tracking-widest hover:scale-[1.02] shadow-xl shadow-indigo-600/20 transition-all active:scale-95 disabled:opacity-50">
-                      {loading ? 'Synchronizing...' : 'Update Knowledge Base'}
-                    </button>
-                  </div>
+                  <button onClick={handleUpdateCourse} disabled={loading} className="w-full py-5 bg-indigo-600 rounded-2xl font-black uppercase text-xs tracking-widest hover:scale-[1.02] shadow-xl shadow-indigo-600/20 transition-all active:scale-95">
+                    {loading ? 'Injecting Data...' : 'Sync Neural Core'}
+                  </button>
                 </div>
               </div>
             )}
@@ -286,7 +287,6 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
                     <span className="text-sm font-black text-indigo-400">{entry.score || 0}</span>
                   </div>
                 ))}
-                {leaderboard.length === 0 && <p className="text-center py-6 text-[10px] text-slate-600 uppercase font-black tracking-widest">No Sector Data</p>}
               </div>
             </div>
             <div className="p-8 rounded-[2.5rem] bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-between group hover:bg-indigo-600/15 transition-all">
@@ -317,9 +317,9 @@ function WelcomeUI({ content }: { content: string }) {
       <div className="w-24 h-24 bg-indigo-500/10 rounded-[2.5rem] flex items-center justify-center text-indigo-400">
         <BrainCircuit size={48} />
       </div>
-      <h2 className="text-2xl font-black uppercase tracking-tighter text-white">Neural Interface Ready</h2>
+      <h2 className="text-2xl font-black uppercase tracking-tighter text-white">Interface Ready</h2>
       <p className="text-slate-500 text-sm font-medium leading-relaxed">
-        {content ? "The link is primed with course data. Proceed with your inquiry." : "Awaiting knowledge injection via the administrator console."}
+        {content ? "Knowledge core loaded. Query the AI tutor." : "The neural core is empty. Access the Console to inject course data."}
       </p>
     </div>
   );
@@ -329,7 +329,7 @@ function LoadingState() {
   return (
     <div className="h-screen bg-[#020205] flex flex-col items-center justify-center space-y-10">
       <NeuralLogo />
-      <p className="text-indigo-400 font-black tracking-[0.5em] uppercase text-[10px] animate-pulse">Initializing Link</p>
+      <p className="text-indigo-400 font-black tracking-[0.5em] uppercase text-[10px] animate-pulse">Establishing Link</p>
     </div>
   );
 }
@@ -343,4 +343,4 @@ function FailureState({ error }: { error: string }) {
       <button onClick={() => window.location.reload()} className="mt-10 px-10 py-4 bg-white text-black rounded-2xl font-black text-[10px] uppercase tracking-[0.2em]">Reboot</button>
     </div>
   );
-        }
+          }
