@@ -36,8 +36,9 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 // PREMIUM STYLING SYSTEM
-const glassStyle = "bg-slate-900/80 backdrop-blur-3xl border border-white/5 rounded-[2.5rem] shadow-[0_0_50px_-12px_rgba(0,0,0,0.5)] transition-all duration-700";
+const glassStyle = "bg-slate-900/80 bg-[url('data:image/svg+xml,%3Csvg width=\"20\" height=\"20\" viewBox=\"0 0 20 20\" xmlns=\"http://www.w3.org/2000/svg\"%3E%3Ccircle cx=\"2\" cy=\"2\" r=\"1.5\" fill=\"%23ffffff\" fill-opacity=\"0.03\"/%3E%3C/svg%3E')] bg-repeat backdrop-blur-3xl border border-white/5 rounded-[2.5rem] shadow-[0_0_50px_-12px_rgba(0,0,0,0.5)] transition-all duration-700";
 const glowBorder = "ring-1 ring-white/10 shadow-[0_0_20px_rgba(99,102,241,0.15)] focus-within:shadow-[0_0_30px_rgba(99,102,241,0.3)] transition-all duration-500";
+const cardBgPattern = "bg-[url('data:image/svg+xml,%3Csvg width=\"20\" height=\"20\" viewBox=\"0 0 20 20\" xmlns=\"http://www.w3.org/2000/svg\"%3E%3Ccircle cx=\"2\" cy=\"2\" r=\"1.5\" fill=\"%23ffffff\" fill-opacity=\"0.03\"/%3E%3C/svg%3E')] bg-repeat";
 
 const NeuralLogo = () => (
   <svg width="48" height="48" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className="drop-shadow-[0_0_12px_rgba(99,102,241,0.6)]">
@@ -190,7 +191,14 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
   if (!user) return <LoadingState />;
 
   return (
-    <div className="min-h-screen bg-[#020205] text-slate-200 p-4 md:p-10 font-sans selection:bg-indigo-500/30 overflow-x-hidden relative">
+    <div
+      className="min-h-screen text-slate-200 p-4 md:p-10 font-sans selection:bg-indigo-500/30 overflow-x-hidden relative"
+      style={{
+        backgroundImage: `linear-gradient(to bottom, rgba(2,2,5,0.85), rgba(2,2,5,0.95)), url('https://images.unsplash.com/photo-1518770660439-4636190af475?ixlib=rb-4.0.3&q=80&fm=jpg&crop=entropy&cs=tinysrgb&w=1920')`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+      }}
+    >
       {/* ATMOSPHERIC BACKGROUND */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] opacity-20" />
@@ -200,7 +208,7 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
 
       <div className="max-w-7xl mx-auto space-y-8 relative z-10">
         {/* NAVIGATION BAR */}
-        <nav className="flex flex-col md:flex-row items-center justify-between gap-8 p-6 rounded-[2.5rem] bg-slate-900/60 border border-white/5 backdrop-blur-xl shadow-2xl">
+        <nav className={`flex flex-col md:flex-row items-center justify-between gap-8 p-6 rounded-[2.5rem] bg-slate-900/60 border border-white/5 backdrop-blur-xl shadow-2xl ${cardBgPattern}`}>
           <div className="flex items-center gap-6">
             <NeuralLogo />
             <div>
@@ -291,7 +299,7 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
               </div>
             </div>
             
-            <div className="p-8 rounded-[2.5rem] bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-between group hover:bg-indigo-600/15 transition-all">
+            <div className={`p-8 rounded-[2.5rem] bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-between group hover:bg-indigo-600/15 transition-all ${cardBgPattern}`}>
               <div>
                 <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Neural Load</p>
                 <p className="text-xl font-black text-white">99.2% Efficiency</p>
@@ -345,4 +353,4 @@ function FailureState({ error }: { error: string }) {
       <button onClick={() => window.location.reload()} className="mt-10 px-10 py-4 bg-white text-black rounded-2xl font-black text-[10px] uppercase tracking-[0.2em]">Reboot System</button>
     </div>
   );
-            }
+}
