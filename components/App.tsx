@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 
 /**
- * 1. CONFIGURATION & NEURAL HANDSHAKE
+ * 1. CORE ARCHITECTURE & NEURAL HANDSHAKE
  */
 const getFirebaseConfig = () => {
   const rawConfig = process.env.NEXT_PUBLIC_FIREBASE_CONFIG || '{}';
@@ -27,19 +27,20 @@ const getFirebaseConfig = () => {
 };
 
 const firebaseConfig = getFirebaseConfig();
-const appId = process.env.NEXT_PUBLIC_WHOP_APP_ID || 'whop-pro-companion';
-const apiKey = ""; // The environment provides this key automatically at runtime.
+const appId = typeof (window as any).__app_id !== 'undefined' ? (window as any).__app_id : 'default-pro-companion';
+// MANDATORY: The environment injects the key into this constant at runtime.
+const apiKey = ""; 
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// PREMIUM UI TOKENS
+// PREMIUM STYLING SYSTEM
 const glassStyle = "bg-slate-900/80 backdrop-blur-3xl border border-white/5 rounded-[2.5rem] shadow-[0_0_50px_-12px_rgba(0,0,0,0.5)] transition-all duration-700";
 const glowBorder = "ring-1 ring-white/10 shadow-[0_0_20px_rgba(99,102,241,0.15)] focus-within:shadow-[0_0_30px_rgba(99,102,241,0.3)] transition-all duration-500";
 
 const NeuralLogo = () => (
-  <svg width="48" height="48" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className="drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]">
+  <svg width="48" height="48" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className="drop-shadow-[0_0_12px_rgba(99,102,241,0.6)]">
     <path d="M50 5L95 27.5V72.5L50 95L5 72.5V27.5L50 5Z" stroke="url(#paint0_linear)" strokeWidth="2" />
     <path d="M50 25L75 37.5V62.5L50 75L25 62.5V37.5L50 25Z" fill="url(#paint1_linear)" fillOpacity="0.8" />
     <circle cx="50" cy="50" r="10" fill="white" className="animate-pulse" />
@@ -72,18 +73,18 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // AUTHENTICATION FLOW
+  // AUTHENTICATION PROTOCOL
   useEffect(() => {
     const initAuth = async () => {
       try {
-        const token = initialAuthToken || (typeof window !== 'undefined' && (window as any).__initial_auth_token);
+        const token = (window as any).__initial_auth_token || initialAuthToken;
         if (token) {
           await signInWithCustomToken(auth, token);
         } else {
           await signInAnonymously(auth);
         }
       } catch (e: any) { 
-        setAuthError("AUTH_FAILED"); 
+        setAuthError("AUTH_PROTOCOL_FAILURE"); 
       }
     };
     initAuth();
@@ -92,18 +93,17 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
       if (u) {
         setUser(u);
         const tokenResult = await getIdTokenResult(u);
-        // Whop role verification
         setIsAdmin(tokenResult.claims.whopRole === 'admin');
       }
     });
     return () => unsubscribe();
   }, [initialAuthToken]);
 
-  // REAL-TIME DATA SYNC
+  // REAL-TIME DATA SYNCHRONIZATION
   useEffect(() => {
     if (!user) return;
     
-    // Path: /artifacts/{appId}/public/data/course_config/main
+    // Public data listener for course content
     const unsubCourse = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'course_config', 'main'), (s) => {
       if (s.exists()) {
         const data = s.data() as any;
@@ -113,17 +113,18 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
       } else {
         setIsDataLoaded(false);
       }
-    }, (err) => console.error("Firestore access error:", err));
+    }, (err) => console.error("Firestore Error:", err));
 
+    // Public leaderboard listener
     const unsubBoard = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard'), (s) => {
       setLeaderboard(s.docs.map(d => ({ id: d.id, ...d.data() } as any)).sort((a,b) => (b.score||0)-(a.score||0)).slice(0, 5));
-    }, (err) => console.error("Leaderboard access error:", err));
+    }, (err) => console.error("Leaderboard Error:", err));
 
     return () => { unsubCourse(); unsubBoard(); };
   }, [user]);
 
   /**
-   * ELITE AI INTERACTION
+   * NEURAL PROCESSING (GEMINI API)
    */
   async function handleSendMessage() {
     if (!input.trim() || loading) return;
@@ -135,7 +136,7 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
     setLoading(true);
     
     try {
-      // MANDATORY MODEL STRING FOR THIS PREVIEW ENVIRONMENT
+      // MANDATORY: Use gemini-2.5-flash-preview-09-2025 in this environment
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
       
       const res = await fetch(endpoint, {
@@ -148,12 +149,9 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
           })), 
           systemInstruction: { 
             parts: [{ 
-              text: `You are the "Companion Pro" Elite Neural Tutor. 
-              COURSE KNOWLEDGE: ${courseData.content || 'Wait for admin data injection.'}
-              INSTRUCTIONS: 
-              1. Only answer using the course knowledge provided above. 
-              2. If the answer is not in the knowledge base, say: "That information is outside my current neural pathway. Please stick to the course material." 
-              3. Keep answers technical, elite, and helpful.` 
+              text: `You are the Companion Pro Neural Tutor. 
+              KNOWLEDGE BASE: ${courseData.content || 'System awaiting data injection.'}
+              BEHAVIOR: Answer only based on the KNOWLEDGE BASE. If the information is missing, guide the user to contact an administrator. Maintain an elite, professional tone.` 
             }] 
           } 
         })
@@ -162,7 +160,7 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
       const data = await res.json();
       if (data.error) throw new Error(data.error.message);
 
-      const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "Neural uplink failure.";
+      const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "Neural connection timeout.";
       setMessages(p => [...p, { role: 'assistant', text: aiResponse }]);
     } catch (e: any) { 
       setMessages(p => [...p, { role: 'assistant', text: `PROTOCOL ERROR: ${e.message}` }]); 
@@ -181,10 +179,10 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
         lastUpdated: serverTimestamp()
       });
       setLoading(false);
-      alert("Neural database updated.");
+      alert("Neural Pathways Synchronized.");
     } catch (e: any) {
       setLoading(false);
-      alert(`Update failed. Ensure Firestore rules are set to Allow Read/Write.`);
+      alert(`Sync Failed: ${e.message}`);
     }
   };
 
@@ -193,6 +191,7 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
 
   return (
     <div className="min-h-screen bg-[#020205] text-slate-200 p-4 md:p-10 font-sans selection:bg-indigo-500/30 overflow-x-hidden relative">
+      {/* ATMOSPHERIC BACKGROUND */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] opacity-20" />
         <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-indigo-600/10 blur-[150px] rounded-full" />
@@ -200,6 +199,7 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
       </div>
 
       <div className="max-w-7xl mx-auto space-y-8 relative z-10">
+        {/* NAVIGATION BAR */}
         <nav className="flex flex-col md:flex-row items-center justify-between gap-8 p-6 rounded-[2.5rem] bg-slate-900/60 border border-white/5 backdrop-blur-xl shadow-2xl">
           <div className="flex items-center gap-6">
             <NeuralLogo />
@@ -208,7 +208,7 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
               <div className="flex items-center gap-3">
                 <span className={`flex h-2 w-2 rounded-full ${isDataLoaded ? 'bg-emerald-500 shadow-[0_0_15px_#10b981]' : 'bg-amber-500 animate-pulse shadow-[0_0_15px_#f59e0b]'}`} />
                 <span className="text-[10px] uppercase font-bold text-slate-400 tracking-[0.3em]">
-                  {isDataLoaded ? 'Quantum Link Active' : 'Standby: Data Sync Required'}
+                  {isDataLoaded ? 'Link Active' : 'Sync Required'}
                 </span>
               </div>
             </div>
@@ -216,7 +216,7 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
           <div className="flex items-center gap-2 p-1.5 bg-black/40 rounded-[1.5rem] border border-white/5">
             <NavBtn active={view==='chat'} onClick={()=>setView('chat')} icon={<BrainCircuit size={18}/>} label="Tutor" />
             <NavBtn active={view==='quiz'} onClick={()=>setView('quiz')} icon={<Trophy size={18}/>} label="Arena" />
-            {/* Console visible for Admins OR if database is currently empty */}
+            {/* Show Console if admin OR if database content is missing entirely */}
             {(isAdmin || !isDataLoaded) && (
               <NavBtn active={view==='admin'} onClick={()=>setView('admin')} icon={<Terminal size={18}/>} label="Console" />
             )}
@@ -227,11 +227,11 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
           <div className="lg:col-span-8 space-y-8">
             {view === 'chat' && (
               <div className={`${glassStyle} ${glowBorder} h-[700px] flex flex-col relative overflow-hidden`}>
-                <div ref={scrollRef} className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+                <div ref={scrollRef} className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar scroll-smooth">
                   {messages.length === 0 && <WelcomeUI content={courseData.content} />}
                   {messages.map((m, i) => (
                     <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-4 duration-500`}>
-                      <div className={`max-w-[85%] p-6 rounded-[2rem] text-[15px] shadow-2xl ${m.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-slate-800/40 border border-white/5 text-slate-200 rounded-tl-none backdrop-blur-md'}`}>
+                      <div className={`max-w-[85%] p-6 rounded-[2rem] text-[15px] leading-relaxed shadow-2xl ${m.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-slate-800/40 border border-white/5 text-slate-200 rounded-tl-none backdrop-blur-md'}`}>
                         {m.text}
                       </div>
                     </div>
@@ -239,14 +239,14 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
                   {loading && <div className="flex gap-2 p-4 animate-pulse"><div className="w-1.5 h-1.5 bg-indigo-500 rounded-full"/><div className="w-1.5 h-1.5 bg-purple-500 rounded-full"/><div className="w-1.5 h-1.5 bg-pink-500 rounded-full"/></div>}
                 </div>
                 <div className="p-8 border-t border-white/5 bg-black/20 backdrop-blur-xl">
-                  <div className="relative">
+                  <div className="relative group">
                     <input 
                       type="text" value={input} onChange={(e)=>setInput(e.target.value)}
                       onKeyPress={(e)=>e.key==='Enter' && handleSendMessage()}
-                      placeholder="Consult neural core..."
+                      placeholder="Access neural knowledge core..."
                       className="w-full bg-black/60 border border-white/10 rounded-[1.5rem] py-5 pl-8 pr-16 focus:border-indigo-500 outline-none text-white transition-all shadow-inner"
                     />
-                    <button onClick={handleSendMessage} disabled={loading} className="absolute right-3 top-3 bottom-3 px-6 bg-indigo-600 rounded-xl hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 active:scale-95 disabled:opacity-50">
+                    <button onClick={handleSendMessage} disabled={loading} className="absolute right-3 top-3 bottom-3 px-6 bg-indigo-600 rounded-xl hover:bg-indigo-500 transition-all text-white shadow-lg shadow-indigo-600/20 active:scale-95 disabled:opacity-50">
                       <Send size={18} />
                     </button>
                   </div>
@@ -258,17 +258,17 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
               <div className={`${glassStyle} p-10 space-y-8 bg-slate-900/90 animate-in zoom-in-95 duration-500`}>
                 <div className="flex items-center gap-4">
                   <ShieldCheck className="text-indigo-400" size={32} />
-                  <h2 className="text-2xl font-black uppercase tracking-tight">Neural Console</h2>
+                  <h2 className="text-2xl font-black uppercase tracking-tight">Admin Console</h2>
                 </div>
                 <div className="space-y-4">
                   <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Knowledge Injection Port</p>
                   <textarea 
                     value={adminInput} onChange={(e)=>setAdminInput(e.target.value)}
-                    placeholder="Paste course data here..."
+                    placeholder="Paste course text here to train the AI..."
                     className="w-full h-80 bg-black/60 border border-white/10 rounded-3xl p-8 text-sm focus:border-indigo-500 outline-none text-slate-300 leading-relaxed custom-scrollbar"
                   />
                   <button onClick={handleUpdateCourse} disabled={loading} className="w-full py-5 bg-indigo-600 rounded-2xl font-black uppercase text-xs tracking-widest hover:scale-[1.02] shadow-xl shadow-indigo-600/20 transition-all active:scale-95">
-                    {loading ? 'Injecting Data...' : 'Sync Neural Core'}
+                    {loading ? 'Synchronizing...' : 'Update Knowledge Base'}
                   </button>
                 </div>
               </div>
@@ -278,23 +278,25 @@ export default function App({ initialAuthToken }: { initialAuthToken?: string })
           <aside className="lg:col-span-4 space-y-8">
             <div className={`${glassStyle} p-8 relative overflow-hidden bg-slate-900/40`}>
               <h3 className="text-xs font-black text-white uppercase tracking-[0.3em] mb-8 border-b border-white/5 pb-4 flex items-center gap-2">
-                <Globe size={14} className="text-indigo-400" /> Sector Rankings
+                <Globe size={14} className="text-indigo-400" /> Leaderboard
               </h3>
               <div className="space-y-4">
                 {leaderboard.map((entry, i) => (
                   <div key={i} className="flex items-center justify-between p-4 rounded-2xl bg-white/[0.02] border border-white/5">
-                    <span className="text-xs font-bold text-slate-400">#0{i+1} {entry.username || 'Agent_X'}</span>
+                    <span className="text-xs font-bold text-slate-400">#0{i+1} {entry.username || 'Anonymous'}</span>
                     <span className="text-sm font-black text-indigo-400">{entry.score || 0}</span>
                   </div>
                 ))}
+                {leaderboard.length === 0 && <p className="text-center py-6 text-[10px] text-slate-600 uppercase font-black tracking-widest">No Sector Data</p>}
               </div>
             </div>
+            
             <div className="p-8 rounded-[2.5rem] bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-between group hover:bg-indigo-600/15 transition-all">
               <div>
                 <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Neural Load</p>
-                <p className="text-xl font-black text-white">98.4% Efficiency</p>
+                <p className="text-xl font-black text-white">99.2% Efficiency</p>
               </div>
-              <Cpu className="text-indigo-500 animate-pulse" />
+              <Cpu className="text-indigo-500 animate-pulse group-hover:scale-110 transition-transform" />
             </div>
           </aside>
         </main>
@@ -317,9 +319,9 @@ function WelcomeUI({ content }: { content: string }) {
       <div className="w-24 h-24 bg-indigo-500/10 rounded-[2.5rem] flex items-center justify-center text-indigo-400">
         <BrainCircuit size={48} />
       </div>
-      <h2 className="text-2xl font-black uppercase tracking-tighter text-white">Interface Ready</h2>
+      <h2 className="text-2xl font-black uppercase tracking-tighter text-white">Neural Uplink Ready</h2>
       <p className="text-slate-500 text-sm font-medium leading-relaxed">
-        {content ? "Knowledge core loaded. Query the AI tutor." : "The neural core is empty. Access the Console to inject course data."}
+        {content ? "The tutor is primed with course data. Ask anything regarding the lessons." : "The knowledge base is currently offline. Use the Console to sync course material."}
       </p>
     </div>
   );
@@ -329,7 +331,7 @@ function LoadingState() {
   return (
     <div className="h-screen bg-[#020205] flex flex-col items-center justify-center space-y-10">
       <NeuralLogo />
-      <p className="text-indigo-400 font-black tracking-[0.5em] uppercase text-[10px] animate-pulse">Establishing Link</p>
+      <p className="text-indigo-400 font-black tracking-[0.5em] uppercase text-[10px] animate-pulse">Initializing Interface</p>
     </div>
   );
 }
@@ -340,7 +342,7 @@ function FailureState({ error }: { error: string }) {
       <AlertCircle size={48} className="text-red-500 mb-6" />
       <h2 className="text-xl font-black text-white uppercase tracking-widest">Protocol Failure</h2>
       <p className="text-slate-600 mt-2 text-[10px] uppercase font-bold tracking-widest">{error}</p>
-      <button onClick={() => window.location.reload()} className="mt-10 px-10 py-4 bg-white text-black rounded-2xl font-black text-[10px] uppercase tracking-[0.2em]">Reboot</button>
+      <button onClick={() => window.location.reload()} className="mt-10 px-10 py-4 bg-white text-black rounded-2xl font-black text-[10px] uppercase tracking-[0.2em]">Reboot System</button>
     </div>
   );
-          }
+            }
