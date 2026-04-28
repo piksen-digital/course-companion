@@ -16,7 +16,7 @@ import {
   serverTimestamp,
   getDoc,
   updateDoc,
-  arrayUnion,
+  increment,
 } from 'firebase/firestore';
 import {
   MessageSquare,
@@ -25,7 +25,6 @@ import {
   Trophy,
   RefreshCw,
   Globe,
-  Users,
   Zap,
   AlertCircle,
   WifiOff,
@@ -35,12 +34,8 @@ import {
   Mic,
   MicOff,
   ChevronDown,
-  ZapOff,
 } from 'lucide-react';
 
-/* -------------------------------------------------------------------------- */
-/*  HELPERS & CONFIG                                                          */
-/* -------------------------------------------------------------------------- */
 const getFirebaseConfig = () => {
   const rawConfig = process.env.NEXT_PUBLIC_FIREBASE_CONFIG || '{}';
   try {
@@ -62,18 +57,12 @@ const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-/* -------------------------------------------------------------------------- */
-/*  STYLE CONSTANTS                                                           */
-/* -------------------------------------------------------------------------- */
 const glassStyle =
   'bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl transition-all duration-500';
 const glassButton =
   'p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all border border-white/5 text-slate-400 hover:text-white active:scale-95';
 
-/* -------------------------------------------------------------------------- */
-/*  COMPONENTS                                                                */
-/* -------------------------------------------------------------------------- */
-const NavBtn = ({ active, onClick, icon, label }) => (
+const NavBtn = ({ active, onClick, icon, label }: any) => (
   <button
     onClick={onClick}
     className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all font-bold text-xs uppercase tracking-tight ${
@@ -86,7 +75,7 @@ const NavBtn = ({ active, onClick, icon, label }) => (
   </button>
 );
 
-const FeedbackButton = ({ type, onClick, active }) => (
+const FeedbackButton = ({ type, onClick, active }: any) => (
   <button
     onClick={onClick}
     className={`p-1.5 rounded-lg transition-all ${
@@ -99,18 +88,13 @@ const FeedbackButton = ({ type, onClick, active }) => (
   </button>
 );
 
-/* -------------------------------------------------------------------------- */
-/*  APP                                                                       */
-/* -------------------------------------------------------------------------- */
-export default function App({ initialAuthToken }) {
-  /* ---- Auth & User State ---- */
-  const [user, setUser] = useState(null);
+export default function App({ initialAuthToken }: any) {
+  const [user, setUser] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [view, setView] = useState('chat');
-  const [authError, setAuthError] = useState(null);
+  const [authError, setAuthError] = useState<any>(null);
 
-  /* ---- Chat State ---- */
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [showRecap, setShowRecap] = useState(false);
@@ -119,28 +103,19 @@ export default function App({ initialAuthToken }) {
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [listening, setListening] = useState(false);
 
-  /* ---- Course & User Data ---- */
-  const [courseData, setCourseData] = useState({ content: '', lastUpdated: null });
-  const [userStats, setUserStats] = useState({ totalQuizzes: 0, highScore: 0 });
-  const [leaderboard, setLeaderboard] = useState([]);
+  const [courseData, setCourseData] = useState<any>({ content: '', lastUpdated: null });
+  const [userStats, setUserStats] = useState<any>({ totalQuizzes: 0, highScore: 0 });
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [confusionHeatmap, setConfusionHeatmap] = useState<any[]>([]);
 
-  /* ---- Admin Analytics ---- */
-  const [confusionHeatmap, setConfusionHeatmap] = useState([]);
-
-  /* ---- Refs ---- */
-  const scrollRef = useRef(null);
+  const scrollRef = useRef<any>(null);
   const recognitionRef = useRef<any>(null);
-  const debounceRef = useRef<NodeJS.Timeout | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<any>(null);
+  const inputRef = useRef<any>(null);
 
-  /* ============================================================= */
-  /*  AUTH EFFECT                                                   */
-  /* ============================================================= */
   useEffect(() => {
     const connectionTimeout = setTimeout(() => {
-      if (!auth.currentUser) {
-        setAuthError('CONNECTION_TIMEOUT');
-      }
+      if (!auth.currentUser) setAuthError('CONNECTION_TIMEOUT');
     }, 15000);
 
     const initAuth = async () => {
@@ -155,9 +130,7 @@ export default function App({ initialAuthToken }) {
         }
       } catch (e: any) {
         console.error('Auth Error:', e.code);
-        setAuthError(
-          e.code === 'auth/network-request-failed' ? 'NETWORK_ERROR' : 'AUTH_FAILED'
-        );
+        setAuthError(e.code === 'auth/network-request-failed' ? 'NETWORK_ERROR' : 'AUTH_FAILED');
       }
     };
 
@@ -176,21 +149,18 @@ export default function App({ initialAuthToken }) {
     };
   }, [initialAuthToken]);
 
-  /* ============================================================= */
-  /*  DATA LISTENERS (course, stats, leaderboard, admin)            */
-  /* ============================================================= */
   useEffect(() => {
     if (!user) return;
 
     const unsubCourse = onSnapshot(
       doc(db, 'artifacts', appId, 'public', 'data', 'course_config', 'main'),
-      (s) => s.exists() && setCourseData(s.data() as any),
+      (s) => s.exists() && setCourseData(s.data()),
       (err) => console.error('Firestore Error (Course):', err)
     );
 
     const unsubStats = onSnapshot(
       doc(db, 'artifacts', appId, 'users', user.uid, 'progress', 'stats'),
-      (s) => s.exists() && setUserStats(s.data() as any),
+      (s) => s.exists() && setUserStats(s.data()),
       (err) => console.error('Firestore Error (Stats):', err)
     );
 
@@ -198,19 +168,18 @@ export default function App({ initialAuthToken }) {
       collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard'),
       (s) => {
         const board = s.docs
-          .map((d) => ({ id: d.id, ...d.data() } as any))
-          .sort((a, b) => (b.score || 0) - (a.score || 0))
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .sort((a: any, b: any) => (b.score || 0) - (a.score || 0))
           .slice(0, 5);
         setLeaderboard(board);
       },
       (err) => console.error('Firestore Error (Board):', err)
     );
 
-    // Admin confusion heatmap (reads from public data)
     const unsubConfusion = onSnapshot(
       collection(db, 'artifacts', appId, 'public', 'data', 'confusion_heatmap'),
       (s) => {
-        const heat = s.docs.map((d) => ({ id: d.id, ...d.data() } as any));
+        const heat = s.docs.map((d) => ({ id: d.id, ...d.data() }));
         setConfusionHeatmap(heat);
       },
       (err) => console.error('Firestore Error (Heatmap):', err)
@@ -224,23 +193,11 @@ export default function App({ initialAuthToken }) {
     };
   }, [user]);
 
-  /* ============================================================= */
-  /*  SMART RECAP (on first load with previous messages)            */
-  /* ============================================================= */
   useEffect(() => {
     if (!user || messages.length > 0 || !courseData.content) return;
     const fetchRecap = async () => {
       try {
-        // Load last session messages from Firestore (simple: last 6 assistant+user)
-        const userMsgRef = doc(
-          db,
-          'artifacts',
-          appId,
-          'users',
-          user.uid,
-          'chats',
-          'session'
-        );
+        const userMsgRef = doc(db, 'artifacts', appId, 'users', user.uid, 'chats', 'session');
         const snap = await getDoc(userMsgRef);
         if (!snap.exists()) return;
         const data = snap.data();
@@ -259,8 +216,7 @@ export default function App({ initialAuthToken }) {
           }
         );
         const json = await res.json();
-        const recap =
-          json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const recap = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
         if (recap) {
           setRecapText(recap);
           setShowRecap(true);
@@ -270,11 +226,8 @@ export default function App({ initialAuthToken }) {
       }
     };
     fetchRecap();
-  }, [user, courseData.content]);
+  }, [user, courseData.content, messages.length]);
 
-  /* ============================================================= */
-  /*  AUTO-GENERATE SUGGESTIONS WHEN USER TYPES                     */
-  /* ============================================================= */
   const generateSuggestions = useCallback(
     async (query: string) => {
       if (!query.trim() || !courseData.content) {
@@ -296,7 +249,7 @@ export default function App({ initialAuthToken }) {
         );
         const json = await res.json();
         const raw = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        const lines = raw.split('\n').filter((l) => l.trim());
+        const lines = raw.split('\n').filter((l: string) => l.trim());
         setSuggestions(lines.slice(0, 3));
       } catch (e) {
         setSuggestions([]);
@@ -316,9 +269,6 @@ export default function App({ initialAuthToken }) {
     }, 500);
   };
 
-  /* ============================================================= */
-  /*  SEND MESSAGE + SAVE HISTORY FOR RECAP                         */
-  /* ============================================================= */
   const handleSendMessage = async (customText?: string) => {
     const text = customText || input;
     if (!text.trim() || loading) return;
@@ -346,12 +296,9 @@ export default function App({ initialAuthToken }) {
       const aiResponse =
         data.candidates?.[0]?.content?.parts?.[0]?.text || 'Response logic failure.';
       const newMsgId = Date.now().toString();
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', text: aiResponse, id: newMsgId },
-      ]);
+      setMessages((prev) => [...prev, { role: 'assistant', text: aiResponse, id: newMsgId }]);
 
-      // Save last session (simplified) for recap
+      // Save session for recap
       const history = [...messages, { role: 'user', text: userMessage }, { role: 'assistant', text: aiResponse }]
         .slice(-8)
         .map((m) => `${m.role}: ${m.text}`);
@@ -361,13 +308,13 @@ export default function App({ initialAuthToken }) {
         { merge: true }
       );
 
-      // Track confusion: simple example - if user asks "explain" or "confused", log to admin heatmap
+      // Track confusion for admin heatmap
       if (userMessage.toLowerCase().includes('explain') || userMessage.toLowerCase().includes('confused')) {
-        const section = detectSection(userMessage); // simplistic: just whole message as section
+        const section = userMessage.slice(0, 20).replace(/\s/g, '_') || 'general';
         await updateDoc(
           doc(db, 'artifacts', appId, 'public', 'data', 'confusion_heatmap', section),
           {
-            count: increment(),
+            count: increment(1),
             lastQuestion: userMessage,
             timestamp: serverTimestamp(),
           },
@@ -375,25 +322,13 @@ export default function App({ initialAuthToken }) {
         );
       }
     } catch (error) {
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', text: 'Signal lost.', id: Date.now().toString() },
-      ]);
+      setMessages((prev) => [...prev, { role: 'assistant', text: 'Signal lost.', id: Date.now().toString() }]);
     } finally {
       setLoading(false);
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     }
   };
 
-  // Dummy section detector - you can later integrate with course structure
-  const detectSection = (text: string) => {
-    // In real app, match against course module names
-    return text.slice(0, 20).replace(/\s/g, '_') || 'general';
-  };
-
-  /* ============================================================= */
-  /*  EXPLAIN DIFFERENT                                             */
-  /* ============================================================= */
   const handleExplainDifferent = async (msgId: string, style: string) => {
     const originalMsg = messages.find((m) => m.id === msgId);
     if (!originalMsg || originalMsg.role !== 'assistant') return;
@@ -408,7 +343,7 @@ export default function App({ initialAuthToken }) {
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             systemInstruction: {
-              parts: [{ text: `You are a helpful course tutor.` }],
+              parts: [{ text: 'You are a helpful course tutor.' }],
             },
           }),
         }
@@ -417,9 +352,7 @@ export default function App({ initialAuthToken }) {
       const newExplanation =
         data.candidates?.[0]?.content?.parts?.[0]?.text || 'Could not re-explain.';
       setMessages((prev) =>
-        prev.map((m) =>
-          m.id === msgId ? { ...m, text: newExplanation } : m
-        )
+        prev.map((m) => (m.id === msgId ? { ...m, text: newExplanation } : m))
       );
     } catch {
       alert('Failed to re-explain.');
@@ -428,9 +361,6 @@ export default function App({ initialAuthToken }) {
     }
   };
 
-  /* ============================================================= */
-  /*  FEEDBACK (thumbs)                                             */
-  /* ============================================================= */
   const handleFeedback = async (msgId: string, feedback: 'up' | 'down') => {
     if (!user) return;
     try {
@@ -443,15 +373,11 @@ export default function App({ initialAuthToken }) {
         },
         { merge: true }
       );
-      // Optionally show a subtle toast – omitted for brevity
     } catch (e) {
       console.warn('Feedback not saved', e);
     }
   };
 
-  /* ============================================================= */
-  /*  VOICE INPUT – Web Speech API                                  */
-  /* ============================================================= */
   const toggleListening = () => {
     if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
       alert('Voice input is not supported in your browser.');
@@ -480,9 +406,6 @@ export default function App({ initialAuthToken }) {
     setListening(true);
   };
 
-  /* ============================================================= */
-  /*  RENDER LOGIC (Auth Errors / Loading / Main App)               */
-  /* ============================================================= */
   if (authError) {
     return (
       <div className="h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
@@ -529,5 +452,68 @@ export default function App({ initialAuthToken }) {
   return (
     <div className="min-h-screen bg-[#020617] text-slate-200 p-4 md:p-8 font-sans selection:bg-indigo-500/40">
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* NAVIGATION */}
-        <nav className="flex flex-col md:flex-row items-center justify-betw
+        <nav className="flex flex-col md:flex-row items-center justify-between gap-6 p-4 rounded-3xl bg-slate-900/40 border border-white/5 backdrop-blur-xl">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-gradient-to-tr from-indigo-600 to-purple-600 rounded-2xl flex items-center justify-center shadow-xl shadow-indigo-500/20">
+              <Zap className="text-white fill-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-black text-white tracking-tighter uppercase">
+                Companion<span className="text-indigo-500">Pro</span>
+              </h1>
+              <div className="flex items-center gap-2">
+                <div
+                  className={`w-2 h-2 rounded-full ${
+                    courseData.content
+                      ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]'
+                      : 'bg-amber-500 animate-pulse'
+                  }`}
+                />
+                <span className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">
+                  {courseData.content ? 'Neural Link Active' : 'Standby: Awaiting Data'}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 p-1 bg-black/40 rounded-2xl border border-white/5">
+            <NavBtn active={view === 'chat'} onClick={() => setView('chat')} icon={<MessageSquare size={16} />} label="Tutor" />
+            <NavBtn active={view === 'quiz'} onClick={() => setView('quiz')} icon={<Trophy size={16} />} label="Arena" />
+            {isAdmin && (
+              <NavBtn active={view === 'admin'} onClick={() => setView('admin')} icon={<RefreshCw size={16} />} label="Admin" />
+            )}
+          </div>
+        </nav>
+
+        <main className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="lg:col-span-8 space-y-6">
+            {view === 'chat' ? (
+              <div className={`${glassStyle} h-[650px] flex flex-col relative overflow-hidden`}>
+                {showRecap && (
+                  <div className="mx-6 mt-6 p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <p className="text-xs font-bold uppercase tracking-widest text-indigo-400 mb-1">
+                          Session Recap
+                        </p>
+                        <p className="text-sm text-slate-300 leading-relaxed">{recapText}</p>
+                      </div>
+                      <button
+                        onClick={() => setShowRecap(false)}
+                        className="text-slate-500 hover:text-white ml-4"
+                      >
+                        <ChevronDown size={16} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth">
+                  {messages.length === 0 && (
+                    <div className="h-full flex flex-col items-center justify-center text-center space-y-4">
+                      <div className="w-20 h-20 bg-indigo-500/10 rounded-full flex items-center justify-center text-indigo-400">
+                        <Sparkles size={32} className="animate-pulse" />
+                      </div>
+                      <h2 className="text-2xl font-black uppercase tracking-tighter">AI Tutor Engaged</h2>
+                      <p className="text-slate-500 text-sm max-w-xs mx-auto font-medium leading-relaxed">
+                        {courseData.content
+                          ? 'How can I help you master the course material today?'
+                          : 'I am connected and ready. Sync less
