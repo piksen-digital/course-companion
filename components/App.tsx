@@ -36,6 +36,9 @@ import {
   ChevronDown,
 } from 'lucide-react';
 
+/* -------------------------------------------------------------------------- */
+/*  HELPERS & CONFIG                                                          */
+/* -------------------------------------------------------------------------- */
 const getFirebaseConfig = () => {
   const rawConfig = process.env.NEXT_PUBLIC_FIREBASE_CONFIG || '{}';
   try {
@@ -62,6 +65,9 @@ const glassStyle =
 const glassButton =
   'p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all border border-white/5 text-slate-400 hover:text-white active:scale-95';
 
+/* -------------------------------------------------------------------------- */
+/*  TINY COMPONENTS                                                           */
+/* -------------------------------------------------------------------------- */
 const NavBtn = ({ active, onClick, icon, label }: any) => (
   <button
     onClick={onClick}
@@ -88,7 +94,11 @@ const FeedbackButton = ({ type, onClick, active }: any) => (
   </button>
 );
 
+/* -------------------------------------------------------------------------- */
+/*  MAIN APP COMPONENT                                                        */
+/* -------------------------------------------------------------------------- */
 export default function App({ initialAuthToken }: any) {
+  /* ---- state ---- */
   const [user, setUser] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [view, setView] = useState('chat');
@@ -113,6 +123,7 @@ export default function App({ initialAuthToken }: any) {
   const debounceRef = useRef<any>(null);
   const inputRef = useRef<any>(null);
 
+  /* ---- auth effect ---- */
   useEffect(() => {
     const connectionTimeout = setTimeout(() => {
       if (!auth.currentUser) setAuthError('CONNECTION_TIMEOUT');
@@ -149,6 +160,7 @@ export default function App({ initialAuthToken }: any) {
     };
   }, [initialAuthToken]);
 
+  /* ---- data listeners ---- */
   useEffect(() => {
     if (!user) return;
 
@@ -193,6 +205,7 @@ export default function App({ initialAuthToken }: any) {
     };
   }, [user]);
 
+  /* ---- smart recap ---- */
   useEffect(() => {
     if (!user || messages.length > 0 || !courseData.content) return;
     const fetchRecap = async () => {
@@ -228,6 +241,7 @@ export default function App({ initialAuthToken }: any) {
     fetchRecap();
   }, [user, courseData.content, messages.length]);
 
+  /* ---- suggestions ---- */
   const generateSuggestions = useCallback(
     async (query: string) => {
       if (!query.trim() || !courseData.content) {
@@ -269,6 +283,7 @@ export default function App({ initialAuthToken }: any) {
     }, 500);
   };
 
+  /* ---- send message & save history ---- */
   const handleSendMessage = async (customText?: string) => {
     const text = customText || input;
     if (!text.trim() || loading) return;
@@ -298,7 +313,7 @@ export default function App({ initialAuthToken }: any) {
       const newMsgId = Date.now().toString();
       setMessages((prev) => [...prev, { role: 'assistant', text: aiResponse, id: newMsgId }]);
 
-      // Save session for recap
+      // Save last 8 messages for session recap
       const history = [...messages, { role: 'user', text: userMessage }, { role: 'assistant', text: aiResponse }]
         .slice(-8)
         .map((m) => `${m.role}: ${m.text}`);
@@ -308,7 +323,7 @@ export default function App({ initialAuthToken }: any) {
         { merge: true }
       );
 
-      // Track confusion for admin heatmap
+      // Track confusion for heatmap (simple keyword trigger)
       if (userMessage.toLowerCase().includes('explain') || userMessage.toLowerCase().includes('confused')) {
         const section = userMessage.slice(0, 20).replace(/\s/g, '_') || 'general';
         await updateDoc(
@@ -329,6 +344,7 @@ export default function App({ initialAuthToken }: any) {
     }
   };
 
+  /* ---- explain different ---- */
   const handleExplainDifferent = async (msgId: string, style: string) => {
     const originalMsg = messages.find((m) => m.id === msgId);
     if (!originalMsg || originalMsg.role !== 'assistant') return;
@@ -361,6 +377,7 @@ export default function App({ initialAuthToken }: any) {
     }
   };
 
+  /* ---- feedback ---- */
   const handleFeedback = async (msgId: string, feedback: 'up' | 'down') => {
     if (!user) return;
     try {
@@ -378,6 +395,7 @@ export default function App({ initialAuthToken }: any) {
     }
   };
 
+  /* ---- voice input ---- */
   const toggleListening = () => {
     if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
       alert('Voice input is not supported in your browser.');
@@ -406,6 +424,7 @@ export default function App({ initialAuthToken }: any) {
     setListening(true);
   };
 
+  /* ---- early return for auth errors ---- */
   if (authError) {
     return (
       <div className="h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
@@ -432,6 +451,7 @@ export default function App({ initialAuthToken }: any) {
 
   const activeContent = courseData.content || 'Welcome. I am standing by for course data synchronization.';
 
+  /* ---- loading state ---- */
   if (!user) {
     return (
       <div className="h-screen bg-slate-950 flex flex-col items-center justify-center">
@@ -449,9 +469,11 @@ export default function App({ initialAuthToken }: any) {
     );
   }
 
+  /* ---- main return ---- */
   return (
     <div className="min-h-screen bg-[#020617] text-slate-200 p-4 md:p-8 font-sans selection:bg-indigo-500/40">
       <div className="max-w-7xl mx-auto space-y-6">
+        {/* NAVIGATION */}
         <nav className="flex flex-col md:flex-row items-center justify-between gap-6 p-4 rounded-3xl bg-slate-900/40 border border-white/5 backdrop-blur-xl">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-gradient-to-tr from-indigo-600 to-purple-600 rounded-2xl flex items-center justify-center shadow-xl shadow-indigo-500/20">
@@ -485,9 +507,11 @@ export default function App({ initialAuthToken }: any) {
         </nav>
 
         <main className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* LEFT PANEL */}
           <div className="lg:col-span-8 space-y-6">
             {view === 'chat' ? (
               <div className={`${glassStyle} h-[650px] flex flex-col relative overflow-hidden`}>
+                {/* SMART RECAP BANNER */}
                 {showRecap && (
                   <div className="mx-6 mt-6 p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl">
                     <div className="flex items-start justify-between">
@@ -496,24 +520,4 @@ export default function App({ initialAuthToken }: any) {
                           Session Recap
                         </p>
                         <p className="text-sm text-slate-300 leading-relaxed">{recapText}</p>
-                      </div>
-                      <button
-                        onClick={() => setShowRecap(false)}
-                        className="text-slate-500 hover:text-white ml-4"
-                      >
-                        <ChevronDown size={16} />
-                      </button>
-                    </div>
-                  </div>
-                )}
-                <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth">
-                  {messages.length === 0 && (
-                    <div className="h-full flex flex-col items-center justify-center text-center space-y-4">
-                      <div className="w-20 h-20 bg-indigo-500/10 rounded-full flex items-center justify-center text-indigo-400">
-                        <Sparkles size={32} className="animate-pulse" />
-                      </div>
-                      <h2 className="text-2xl font-black uppercase tracking-tighter">AI Tutor Engaged</h2>
-                      <p className="text-slate-500 text-sm max-w-xs mx-auto font-medium leading-relaxed">
-                        {courseData.content
-                          ? 'How can I help you master the course material today?'
-                          : 'I am connected and ready. Sync less
+  
